@@ -1,4 +1,4 @@
-package entities.keeper
+package entities
 
 import com.fasterxml.jackson.annotation.JsonProperty
 

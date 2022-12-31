@@ -1,6 +1,7 @@
 package entities
 
 import com.fasterxml.jackson.annotation.JsonProperty
+import java.util.*
 
 class ForumTree(
     @JsonProperty("result") val result: ForumTreeResults

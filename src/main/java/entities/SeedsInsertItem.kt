@@ -1,4 +1,7 @@
 package entities
 
-class SeedsInsertItem {
-}
+class SeedsInsertItem (
+    val foruId: Int,
+    val topicId: Int,
+    val seedsCount: Int
+        )
