@@ -81,7 +81,7 @@ fun main() {
     val delay = startTime.timeInMillis - System.currentTimeMillis()
     println("Ближайшее обновление будет выполнено через ${(delay / 1000 / 60).toInt()} минут")
     updateScheduler.scheduleAtFixedRate({ updateSeeds() }, delay, 1000 * 60 * 60, TimeUnit.MILLISECONDS)
-    updateSeeds()
+    //updateSeeds()
 }
 
 inline fun <T> responseOrThrow(catForumTree: () -> Call<T>): T {
