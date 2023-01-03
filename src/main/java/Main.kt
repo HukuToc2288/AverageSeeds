@@ -1,4 +1,5 @@
 import api.keeperRetrofit
+import entities.ForumTopicsInfo
 import entities.SeedsInsertItem
 import retrofit2.Call
 import retrofit2.HttpException
@@ -9,26 +10,18 @@ import java.util.concurrent.*
 
 
 const val maxRequestAttempts = 5
-const val startMinute = 34
+const val startMinute = 3
 const val packSize = 1000
 
 var previousDay = (LocalDate.now().toEpochDay() % 31).toInt()
-val sdf = SimpleDateFormat("yyyy-MM-dd hh:mm:ss")
+val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale("ru"))
 
 val updateScheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
-lateinit var dbWorker: ExecutorService
 
 fun updateSeeds() {
     val startTime = System.currentTimeMillis()
-//    println("Получение дерева подразделов...")
-//    val forumTree = try {
-//        responseOrThrow { keeperRetrofit.catForumTree() }
-//    } catch (e: Exception) {
-//        println("Не удалось получить дерево подразделов")
-//        return
-//    }.result
-    // номер ячейки текущего дня в БД
     println(sdf.format(Date()))
+    // номер ячейки текущего дня в БД
     val currentDay = (LocalDate.now().toEpochDay() % 31).toInt()
     println("День $currentDay, предыдущий $previousDay")
     println("Получение количества раздач по разделам...")
@@ -38,20 +31,16 @@ fun updateSeeds() {
         println("Не удалось получить дерево подразделов")
         return
     }.result
-    var topicsList = ArrayList<SeedsInsertItem>()
-    dbWorker = createDbWorker()
+    val topicsList = ArrayList<SeedsInsertItem>()
     val insertSeeds = {
-        // пускаем работу с бд в параллель
-        dbWorker.submit {
-            if (currentDay == previousDay) {
-                // день ещё не кончился, добавляем сиды
-                SeedsRepository.incrementSeedsCount(currentDay, topicsList)
-            } else {
-                // наступил новый день, перезаписываем сиды
-                SeedsRepository.setSeedsCount(currentDay, topicsList)
-            }
+        if (currentDay == previousDay) {
+            // день ещё не кончился, добавляем сиды
+            SeedsRepository.incrementSeedsCount(currentDay, topicsList)
+        } else {
+            // наступил новый день, перезаписываем сиды
+            SeedsRepository.setSeedsCount(currentDay, topicsList)
         }
-        topicsList = ArrayList()
+        topicsList.clear()
     }
 
     // обновляем каждый форум
@@ -64,9 +53,7 @@ fun updateSeeds() {
             println("Не удалось получить информацию о разделе $forum")
             continue
         }
-        dbWorker.submit {
-            SeedsRepository.removeUnregisteredTopics(forum, forumTorrents.result.keys)
-        }
+        SeedsRepository.removeUnregisteredTopics(forum, forumTorrents.result.keys)
         for (torrent in forumTorrents.result) {
             val seedersCount = torrent.value.getOrNull(1) as Int? ?: continue
             topicsList.add(SeedsInsertItem(forum, torrent.key, seedersCount))
@@ -77,16 +64,10 @@ fun updateSeeds() {
     }
     if (topicsList.isNotEmpty())
         insertSeeds.invoke()
-    dbWorker.shutdown()
-    val dbWorkerDone = dbWorker.awaitTermination(5, TimeUnit.MINUTES)
-    if (!dbWorkerDone) {
-        println("Превышено время ожидания завершения обработчика БД. Этого не должно происходить")
-        dbWorker.shutdownNow()
-    }
     previousDay = currentDay
+    println("Обновление всех разделов завершено за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
     System.gc()
     System.runFinalization()
-    println("Обновление всех разделов завершено за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
 }
 
 fun main() {
@@ -100,10 +81,10 @@ fun main() {
     val delay = startTime.timeInMillis - System.currentTimeMillis()
     println("Ближайшее обновление будет выполнено через ${(delay / 1000 / 60).toInt()} минут")
     updateScheduler.scheduleAtFixedRate({ updateSeeds() }, delay, 1000 * 60 * 60, TimeUnit.MILLISECONDS)
-    //updateSeeds()
+    updateSeeds()
 }
 
-fun <T> responseOrThrow(catForumTree: () -> Call<T>): T {
+inline fun <T> responseOrThrow(catForumTree: () -> Call<T>): T {
     for (attempt in 1..maxRequestAttempts) {
         try {
             if (attempt > 1) {
@@ -128,7 +109,7 @@ fun <T> responseOrThrow(catForumTree: () -> Call<T>): T {
 }
 
 fun createDbWorker(): ExecutorService {
-    return ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, LinkedBlockingQueue(10)).apply {
+    return ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, LinkedBlockingQueue()).apply {
         setRejectedExecutionHandler { runnable, executor ->
             executor.queue.put(runnable)
             if (executor.isShutdown) {
