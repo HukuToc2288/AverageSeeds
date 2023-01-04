@@ -1,5 +1,4 @@
 import api.keeperRetrofit
-import entities.ForumTopicsInfo
 import entities.SeedsInsertItem
 import retrofit2.Call
 import retrofit2.HttpException
@@ -70,7 +69,12 @@ fun updateSeeds() {
     System.runFinalization()
 }
 
-fun main() {
+fun main(args: Array<String>) {
+    if (args.getOrNull(0) == "once") {
+        println("Обновляем сиды один раз")
+        updateSeeds()
+        return
+    }
     //SeedsRepository.incrementSeedsCount(1, 1, 1, 1)
     val startTime = GregorianCalendar()
     if (startTime.get(Calendar.MINUTE) >= startMinute) {
@@ -106,15 +110,4 @@ inline fun <T> responseOrThrow(catForumTree: () -> Call<T>): T {
         }
     }
     throw ArrayIndexOutOfBoundsException()
-}
-
-fun createDbWorker(): ExecutorService {
-    return ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, LinkedBlockingQueue()).apply {
-        setRejectedExecutionHandler { runnable, executor ->
-            executor.queue.put(runnable)
-            if (executor.isShutdown) {
-                throw RejectedExecutionException("Task $runnable rejected from $executor")
-            }
-        }
-    }
 }

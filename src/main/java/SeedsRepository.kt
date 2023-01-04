@@ -1,14 +1,13 @@
 import entities.SeedsInsertItem
 import org.sqlite.SQLiteConfig
-import org.sqlite.SQLiteConnection
-import java.io.Closeable
+import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.PreparedStatement
 import java.sql.Statement
 
 object SeedsRepository {
 
-    val connection = DriverManager.getConnection(
+    private val connection: Connection = DriverManager.getConnection(
         "jdbc:sqlite:files/seeds.db",
         SQLiteConfig().apply {
             setJournalMode(SQLiteConfig.JournalMode.OFF)
@@ -119,7 +118,7 @@ object SeedsRepository {
                 statement.setInt(3, topic.seedsCount)
                 statement.addBatch()
             }
-            statement.execute()
+            statement.executeBatch()
             connection.commit()
         } finally {
             statement?.close()
@@ -139,7 +138,7 @@ object SeedsRepository {
                 statement.setInt(3, topic.seedsCount)
                 statement.addBatch()
             }
-            statement.execute()
+            statement.executeBatch()
             connection.commit()
         } finally {
             statement?.close()
