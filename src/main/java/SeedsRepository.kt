@@ -20,7 +20,7 @@ object SeedsRepository {
         var statement: Statement? = null
         try {
             statement = connection.createStatement()
-            statement.execute(
+            statement.addBatch(
                 "CREATE TABLE IF NOT EXISTS Topics (" +
                         "id INT NOT NULL PRIMARY KEY," +
                         "ss INT NOT NULL," +
@@ -98,14 +98,15 @@ object SeedsRepository {
         var statement: Statement? = null
         try {
             statement = connection.createStatement()
-            statement.execute(
-                "DROP TABLE IF EXISTS temp.TopicsNew;" +
-                        "CREATE TEMPORARY TABLE TopicsNew (" +
+            statement.addBatch("DROP TABLE IF EXISTS temp.TopicsNew;")
+            statement.addBatch(
+                "CREATE TEMPORARY TABLE TopicsNew (" +
                         "id INT NOT NULL PRIMARY KEY," +
                         "ss INT NOT NULL," +
                         "se INT" +
                         ")"
             )
+            statement.executeBatch()
             connection.commit()
         } finally {
             statement?.close()
@@ -116,8 +117,7 @@ object SeedsRepository {
         var statement: PreparedStatement? = null
         try {
             statement = connection.prepareStatement(
-                "INSERT INTO temp.TopicsNew(id,ss,se) VALUES (?,?,?)" +
-                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, se=excluded.se"
+                "INSERT OR REPLACE INTO temp.TopicsNew(id,ss,se) VALUES (?,?,?)"
             )
             for (topic in topics) {
                 statement.setInt(1, topic.topicId)
@@ -133,20 +133,20 @@ object SeedsRepository {
     }
 
     fun commitNewSeeds(day: Int, isNewDay: Boolean) {
-        var insertStatement: PreparedStatement? = null
+        var insertStatement: Statement? = null
         try {
-            insertStatement = connection.prepareStatement(
-                "INSERT INTO Topics(id,ss,u$day,s$day) SELECT id,ss,1,se FROM temp.TopicsNew" +
-                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss " + (
+            insertStatement = connection.createStatement()
+            insertStatement.addBatch("DELETE FROM Topics WHERE Topics.id NOT IN (SELECT TopicsNew.id FROM temp.TopicsNew)")
+            insertStatement.addBatch(
+                "INSERT INTO Topics(id,ss,u$day,s$day) SELECT id,ss,1,se FROM temp.TopicsNew WHERE TRUE" +
+                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, " + (
                         if (isNewDay)
                             "u$day=1, s$day=excluded.s$day" // новый день, сбрасываем сиды и обновления
                         else
                             "u$day=u$day+1, s$day=s$day+excluded.s$day" // день ещё идёт, добавляем сиды и обновления
-                        ) +
-                        ";DELETE FROM Topics WHERE Topics.id NOT IN SELECT TopicsNew.id FROM temp.TopicsNew"
-
+                        )
             )
-
+            insertStatement.executeBatch()
             connection.commit()
         } finally {
             insertStatement?.close()

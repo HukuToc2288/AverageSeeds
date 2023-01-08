@@ -2,7 +2,6 @@ import api.keeperRetrofit
 import entities.SeedsInsertItem
 import retrofit2.Call
 import retrofit2.HttpException
-import java.io.IOException
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.util.*
@@ -29,32 +28,24 @@ fun updateSeeds() {
     val forumSize = try {
         responseOrThrow { keeperRetrofit.forumSize() }
     } catch (e: Exception) {
-        println("Не удалось получить дерево подразделов")
+        println("Не удалось получить дерево подразделов: $e")
         return
     }.result
     val topicsList = ArrayList<SeedsInsertItem>()
     val insertSeeds = {
-        if (currentDay == previousDay) {
-            // день ещё не кончился, добавляем сиды
-            SeedsRepository.incrementSeedsCount(currentDay, topicsList)
-        } else {
-            // наступил новый день, перезаписываем сиды
-            SeedsRepository.setSeedsCount(currentDay, topicsList)
-        }
+        SeedsRepository.appendNewSeeds(topicsList)
         topicsList.clear()
     }
-
     // обновляем каждый форум
-
     println("Обновляются сиды в ${forumSize.size} подразделах")
+    SeedsRepository.createNewSeedsTable()
     for (forum in forumSize.keys) {
         val forumTorrents = try {
             responseOrThrow { keeperRetrofit.getForumTorrents(forum) }
         } catch (e: Exception) {
-            println("Не удалось получить информацию о разделе $forum")
+            println("Не удалось получить информацию о разделе $forum: $e")
             continue
         }
-        SeedsRepository.removeUnregisteredTopics(forum, forumTorrents.result.keys)
         for (torrent in forumTorrents.result) {
             val seedersCount = torrent.value.getOrNull(1) as Int? ?: continue
             topicsList.add(SeedsInsertItem(forum, torrent.key, seedersCount))
@@ -65,6 +56,7 @@ fun updateSeeds() {
     }
     if (topicsList.isNotEmpty())
         insertSeeds.invoke()
+    SeedsRepository.commitNewSeeds(currentDay, currentDay != previousDay)
     previousDay = currentDay
     println("Обновление всех разделов завершено за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
     System.gc()
@@ -98,14 +90,15 @@ inline fun <T> responseOrThrow(call: () -> Call<T>): T {
         }
         try {
             val response = call.invoke().execute()
-            if (response.isSuccessful)
+            if (!response.isSuccessful)
                 throw HttpException(response)
+            return response.body()!!
         } catch (e: HttpException) {
             val codeType = e.code() / 100
             if (codeType == 4)
                 throw e // неразрешимая ошибка типа 404
             println(e.toString())
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             println(e.toString())
         }
         if (currentAttempt++ == maxRequestAttempts) {
