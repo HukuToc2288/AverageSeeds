@@ -94,6 +94,84 @@ object SeedsRepository {
         }
     }
 
+    fun createNewSeedsTable() {
+        var statement: Statement? = null
+        try {
+            statement = connection.createStatement()
+            statement.execute(
+                "DROP TABLE IF EXISTS temp.TopicsNew;" +
+                        "CREATE TEMPORARY TABLE TopicsNew (" +
+                        "id INT NOT NULL PRIMARY KEY," +
+                        "ss INT NOT NULL," +
+                        "se INT" +
+                        ")"
+            )
+            connection.commit()
+        } finally {
+            statement?.close()
+        }
+    }
+
+    fun appendNewSeeds(topics: Collection<SeedsInsertItem>) {
+        var statement: PreparedStatement? = null
+        try {
+            statement = connection.prepareStatement(
+                "INSERT INTO temp.TopicsNew(id,ss,se) VALUES (?,?,?)" +
+                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, se=excluded.se"
+            )
+            for (topic in topics) {
+                statement.setInt(1, topic.topicId)
+                statement.setInt(2, topic.forumId)
+                statement.setInt(3, topic.seedsCount)
+                statement.addBatch()
+            }
+            statement.executeBatch()
+            connection.commit()
+        } finally {
+            statement?.close()
+        }
+    }
+
+    fun commitNewSeeds(day: Int, isNewDay: Boolean) {
+        var insertStatement: PreparedStatement? = null
+        try {
+            insertStatement = connection.prepareStatement(
+                "INSERT INTO Topics(id,ss,u$day,s$day) SELECT id,ss,1,se FROM temp.TopicsNew" +
+                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss " + (
+                        if (isNewDay)
+                            "u$day=1, s$day=excluded.s$day" // новый день, сбрасываем сиды и обновления
+                        else
+                            "u$day=u$day+1, s$day=s$day+excluded.s$day" // день ещё идёт, добавляем сиды и обновления
+                        ) +
+                        ";DELETE FROM Topics WHERE Topics.id NOT IN SELECT TopicsNew.id FROM temp.TopicsNew"
+
+            )
+
+            connection.commit()
+        } finally {
+            insertStatement?.close()
+            var dropStatement: Statement? = null
+            try {
+                dropStatement = connection.createStatement()
+                dropStatement.execute("DROP TABLE temp.TopicsNew")
+                connection.commit()
+            } finally {
+                dropStatement?.close()
+            }
+        }
+    }
+
+    fun clearDay(day: Int) {
+        var statement: Statement? = null
+        try {
+            statement = connection.createStatement()
+            statement.execute("UPDATE Topics SET u$day=null")
+            connection.commit()
+        } finally {
+            statement?.close()
+        }
+    }
+
     fun removeUnregisteredTopics(forumId: Int, topics: Collection<Int>) {
         var statement: Statement? = null
         try {
