@@ -2,13 +2,15 @@ import api.keeperRetrofit
 import entities.SeedsInsertItem
 import retrofit2.Call
 import retrofit2.HttpException
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.util.*
 import java.util.concurrent.*
 
 
-const val maxRequestAttempts = 5
+const val maxRequestAttempts = 3
+const val requestRetryTimeMinutes = 10
 const val startMinute = 3
 const val packSize = 1000
 
@@ -88,26 +90,32 @@ fun main(args: Array<String>) {
     //updateSeeds()
 }
 
-inline fun <T> responseOrThrow(catForumTree: () -> Call<T>): T {
-    for (attempt in 1..maxRequestAttempts) {
+inline fun <T> responseOrThrow(call: () -> Call<T>): T {
+    var currentAttempt = 1
+    while (true) {
+        if (currentAttempt > 1) {
+            println("Повторная попытка $currentAttempt/$maxRequestAttempts")
+        }
         try {
-            if (attempt > 1) {
-                println("Повторная попытка $attempt/$maxRequestAttempts")
-            }
-            val response = catForumTree.invoke().execute()
-            if (response.code() == 404) {
+            val response = call.invoke().execute()
+            if (response.isSuccessful)
                 throw HttpException(response)
-            }
-            return response.body()!!
         } catch (e: HttpException) {
-            throw e
-        } catch (e: Exception) {
-            e.printStackTrace()
-            if (attempt == maxRequestAttempts) {
-                println("Не удалось выполнить запрос за $maxRequestAttempts попыток, я сдаюсь")
-                throw e
-            }
+            val codeType = e.code() / 100
+            if (codeType == 4)
+                throw e // неразрешимая ошибка типа 404
+            println(e.toString())
+        } catch (e: IOException) {
+            println(e.toString())
+        }
+        if (currentAttempt++ == maxRequestAttempts) {
+            println(
+                "Не удалось выполнить запрос за $maxRequestAttempts попыток," +
+                        " повторная попытка через $requestRetryTimeMinutes минут"
+            )
+            Thread.sleep((requestRetryTimeMinutes * 1000 * 60).toLong())
+            println("$requestRetryTimeMinutes прошло, выполняем запрос снова...")
+            currentAttempt = 1
         }
     }
-    throw ArrayIndexOutOfBoundsException()
 }
