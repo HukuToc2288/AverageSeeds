@@ -15,8 +15,9 @@ const val maxRequestAttempts = 3
 const val requestRetryTimeMinutes = 10
 const val startMinute = 3
 const val packSize = 1000
+const val daysCycle = 31
 
-var previousDay = (LocalDate.now().toEpochDay() % 31).toInt()
+var previousDay = (LocalDate.now().toEpochDay() % daysCycle).toInt()
 val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale("ru"))
 
 val updateScheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
@@ -25,7 +26,7 @@ fun updateSeeds() {
     val startTime = System.currentTimeMillis()
     println(sdf.format(Date()))
     // номер ячейки текущего дня в БД
-    val currentDay = (LocalDate.now().toEpochDay() % 31).toInt()
+    val currentDay = (LocalDate.now().toEpochDay() % daysCycle).toInt()
     println("День $currentDay, предыдущий $previousDay")
     println("Получение количества раздач по разделам...")
     val forumSize = try {
@@ -72,7 +73,7 @@ fun main(args: Array<String>) {
         updateSeeds()
         return
     } else {
-        if (args.contains("noapi")){
+        if (args.contains("noapi")) {
             println("Запускаем без API")
         } else {
             SpringApplication.run(SeedsSpringApplication::class.java)

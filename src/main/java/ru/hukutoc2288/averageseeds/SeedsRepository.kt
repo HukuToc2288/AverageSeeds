@@ -2,9 +2,12 @@ package ru.hukutoc2288.averageseeds
 
 import org.sqlite.SQLiteConfig
 import ru.hukutoc2288.averageseeds.entities.SeedsInsertItem
+import ru.hukutoc2288.averageseeds.entities.web.TopicResponseItem
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.PreparedStatement
+import java.sql.ResultSet
+import java.sql.SQLException
 import java.sql.Statement
 
 object SeedsRepository {
@@ -163,64 +166,66 @@ object SeedsRepository {
         }
     }
 
-    fun clearDay(day: Int) {
+    fun getMainUpdates(currentDay: Int): IntArray {
         var statement: Statement? = null
+        var resultSet: ResultSet? = null
         try {
             statement = connection.createStatement()
-            statement.execute("UPDATE Topics SET u$day=null")
-            connection.commit()
+            resultSet = statement.executeQuery("SELECT * FROM TOPICS WHERE id=-1 LIMIT 1")
+            val mainUpdatesCount = IntArray(30)
+            if (!resultSet.next())
+                throw SQLException("Main updates not acquired, this doesn't suppose to happen!")
+            for (day in 0 until daysCycle - 1) {
+                // получаем номер дня циклически
+                val dayToSelect = (daysCycle + currentDay - day - 1) % daysCycle
+                mainUpdatesCount[day] = resultSet.getInt("u$dayToSelect")
+            }
+            return mainUpdatesCount
         } finally {
+            resultSet?.close()
             statement?.close()
         }
     }
 
-    fun removeUnregisteredTopics(forumId: Int, topics: Collection<Int>) {
+    fun getSeedsInSubsections(
+        currentDay: Int,
+        subsections: IntArray,
+        mainUpdatesCount: IntArray
+    ): Map<Int, Map<Int, TopicResponseItem>> {
+        if (subsections.isEmpty())
+            return emptyMap()
+        if (mainUpdatesCount.size != 30)
+            throw IllegalArgumentException("mainUpdatesCount size must be 30")
         var statement: Statement? = null
+        var resultSet: ResultSet? = null
+        val seedsInSubsections = HashMap<Int, MutableMap<Int, TopicResponseItem>>()
         try {
+            for (subsection in subsections) {
+                seedsInSubsections[subsection] = HashMap()
+            }
             statement = connection.createStatement()
-            statement.execute("DELETE FROM Topics WHERE ss=$forumId AND id NOT IN (${topics.joinToString(",")})")
-            connection.commit()
-        } finally {
-            statement?.close()
-        }
-    }
-
-    fun setSeedsCount(day: Int, topics: Collection<SeedsInsertItem>) {
-        var statement: PreparedStatement? = null
-        try {
-            statement = connection.prepareStatement(
-                "INSERT INTO Topics(id,ss,u$day,s$day) VALUES (?,?,1,?)" +
-                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, u$day=1, s$day=excluded.s$day"
+            resultSet = statement.executeQuery(
+                "SELECT * FROM Topics WHERE ss IN (${subsections.joinToString(",")})"
             )
-            for (topic in topics) {
-                statement.setInt(1, topic.topicId)
-                statement.setInt(2, topic.forumId)
-                statement.setInt(3, topic.seedsCount)
-                statement.addBatch()
-            }
-            statement.executeBatch()
             connection.commit()
-        } finally {
-            statement?.close()
-        }
-    }
-
-    fun incrementSeedsCount(day: Int, topics: Collection<SeedsInsertItem>) {
-        var statement: PreparedStatement? = null
-        try {
-            statement = connection.prepareStatement(
-                "INSERT INTO Topics(id,ss,u$day,s$day) VALUES (?,?,1,?)" +
-                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, u$day=u$day+1, s$day=s$day+excluded.s$day"
-            )
-            for (topic in topics) {
-                statement.setInt(1, topic.topicId)
-                statement.setInt(2, topic.forumId)
-                statement.setInt(3, topic.seedsCount)
-                statement.addBatch()
+            while (resultSet.next()) {
+                val updatesCount = IntArray(30)
+                val totalSeedsCount = IntArray(30)
+                for (day in 0 until daysCycle - 1) {
+                    // получаем номер дня циклически
+                    val dayToSelect = (daysCycle + currentDay - day - 1) % daysCycle
+                    updatesCount[day] = resultSet.getInt("u$dayToSelect")
+                    totalSeedsCount[day] = resultSet.getInt("s$dayToSelect")
+                }
+                seedsInSubsections[resultSet.getInt("ss")]!![resultSet.getInt("id")] =
+                    TopicResponseItem(
+                        totalSeedsCount,
+                        if (!updatesCount.contentEquals(mainUpdatesCount)) updatesCount else null
+                    )
             }
-            statement.executeBatch()
-            connection.commit()
+            return seedsInSubsections
         } finally {
+            resultSet?.close()
             statement?.close()
         }
     }
