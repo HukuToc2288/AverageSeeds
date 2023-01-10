@@ -50,7 +50,7 @@ compileTestKotlin {
 jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     manifest {
-        attributes 'Main-Class': 'MainKt'
+        attributes 'Main-Class': 'ru.hukutoc2288.averageseeds.MainKt'
     }
     from {
         configurations.compileClasspath.collect {
