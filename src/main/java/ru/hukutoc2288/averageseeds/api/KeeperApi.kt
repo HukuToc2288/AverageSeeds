@@ -1,12 +1,11 @@
-package api
+package ru.hukutoc2288.averageseeds.api
 
-import entities.ForumSize
-import entities.ForumTopicsInfo
-import entities.ForumTree
 import retrofit2.Call
 import retrofit2.http.GET
 import retrofit2.http.Path
-import retrofit2.http.Query
+import ru.hukutoc2288.averageseeds.entities.ForumSize
+import ru.hukutoc2288.averageseeds.entities.ForumTopicsInfo
+import ru.hukutoc2288.averageseeds.entities.ForumTree
 
 interface KeeperApi {
 

@@ -1,5 +1,7 @@
-import entities.SeedsInsertItem
+package ru.hukutoc2288.averageseeds
+
 import org.sqlite.SQLiteConfig
+import ru.hukutoc2288.averageseeds.entities.SeedsInsertItem
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.PreparedStatement

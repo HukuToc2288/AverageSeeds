@@ -13,16 +13,25 @@ repositories {
 }
 
 dependencies {
+    // kotlin
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.6.0"
+    implementation('org.jetbrains.kotlin:kotlin-reflect:1.8.0')
+
+    // retrofit & jackson
     implementation 'com.squareup.retrofit2:retrofit:2.9.0'
     implementation('com.squareup.retrofit2:converter-jackson:2.9.0')
     implementation('com.squareup.okhttp3:logging-interceptor:4.10.0')
     implementation('com.squareup.retrofit2:converter-scalars:2.9.0')
-    implementation('org.jetbrains.kotlin:kotlin-reflect:1.8.0')
     implementation('com.fasterxml.jackson.module:jackson-module-kotlin:2.14.1')
+
+    // sqlite
     // https://mvnrepository.com/artifact/org.xerial/sqlite-jdbc
     implementation 'org.xerial:sqlite-jdbc:3.40.0.0'
 
+    // spring
+    implementation 'org.springframework.boot:spring-boot-starter'
+    // https://mvnrepository.com/artifact/org.springframework/spring-web
+    implementation 'org.springframework:spring-web:6.0.3'
 }
 
 test {

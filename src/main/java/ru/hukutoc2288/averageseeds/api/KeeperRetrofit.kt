@@ -1,15 +1,10 @@
-package api
+package ru.hukutoc2288.averageseeds.api
 
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
 import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.jackson.JacksonConverterFactory
-import ru.hukutoc2288.jvmtlo.api.ApiKeyInterceptor
-import ru.hukutoc2288.jvmtlo.api.UserAgentInterceptor
-import java.net.InetSocketAddress
-import java.net.Proxy
 
 
 var keeperRetrofit = createKeeperApi()

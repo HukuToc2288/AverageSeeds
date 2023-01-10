@@ -1,4 +1,4 @@
-package entities
+package ru.hukutoc2288.averageseeds.entities
 
 class SeedsInsertItem(
     val forumId: Int,

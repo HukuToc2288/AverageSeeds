@@ -1,12 +1,15 @@
-import api.keeperRetrofit
-import entities.SeedsInsertItem
+package ru.hukutoc2288.averageseeds
+
+import org.springframework.boot.SpringApplication
 import retrofit2.Call
 import retrofit2.HttpException
+import ru.hukutoc2288.averageseeds.api.keeperRetrofit
+import ru.hukutoc2288.averageseeds.entities.SeedsInsertItem
+import ru.hukutoc2288.averageseeds.web.SeedsSpringApplication
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.util.*
 import java.util.concurrent.*
-
 
 const val maxRequestAttempts = 3
 const val requestRetryTimeMinutes = 10
@@ -64,12 +67,18 @@ fun updateSeeds() {
 }
 
 fun main(args: Array<String>) {
-    if (args.getOrNull(0) == "once") {
-        println("Обновляем сиды один раз")
+    if (args.contains("once")) {
+        println("Обновляем сиды один раз и запускаем без API")
         updateSeeds()
         return
+    } else {
+        if (args.contains("noapi")){
+            println("Запускаем без API")
+        } else {
+            SpringApplication.run(SeedsSpringApplication::class.java)
+        }
     }
-    //SeedsRepository.incrementSeedsCount(1, 1, 1, 1)
+    //ru.hukutoc2288.averageseeds.SeedsRepository.incrementSeedsCount(1, 1, 1, 1)
     val startTime = GregorianCalendar()
     if (startTime.get(Calendar.MINUTE) >= startMinute) {
         // если уже пропустили время то выполним через час
@@ -79,7 +88,7 @@ fun main(args: Array<String>) {
     val delay = startTime.timeInMillis - System.currentTimeMillis()
     println("Ближайшее обновление будет выполнено через ${(delay / 1000 / 60).toInt()} минут")
     updateScheduler.scheduleAtFixedRate({ updateSeeds() }, delay, 1000 * 60 * 60, TimeUnit.MILLISECONDS)
-    //updateSeeds()
+    //ru.hukutoc2288.averageseeds.updateSeeds()
 }
 
 inline fun <T> responseOrThrow(call: () -> Call<T>): T {
