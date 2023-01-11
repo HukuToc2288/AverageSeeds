@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
 import ru.hukutoc2288.averageseeds.SeedsRepository
 import ru.hukutoc2288.averageseeds.entities.web.SeedsResponseBody
+import ru.hukutoc2288.averageseeds.mapper
 
 @RestController
 class SeedsErrorController : ErrorController {
@@ -17,16 +18,18 @@ class SeedsErrorController : ErrorController {
         "/error",
         produces = ["application/json"]
     )
-    fun handleError(request: HttpServletRequest): SeedsResponseBody {
+    fun handleError(request: HttpServletRequest): String {
         val errorMessage = request.getAttribute(RequestDispatcher.ERROR_MESSAGE) as String?
-        return SeedsResponseBody(
-            false,
-            if (errorMessage.isNullOrEmpty())
-                HttpStatus.valueOf(
-                    request.getAttribute(RequestDispatcher.ERROR_STATUS_CODE) as Int
-                ).reasonPhrase
-            else
-                errorMessage
+        return mapper.writeValueAsString(
+            SeedsResponseBody(
+                false,
+                if (errorMessage.isNullOrEmpty())
+                    HttpStatus.valueOf(
+                        request.getAttribute(RequestDispatcher.ERROR_STATUS_CODE) as Int
+                    ).reasonPhrase
+                else
+                    errorMessage
+            )
         )
     }
 }

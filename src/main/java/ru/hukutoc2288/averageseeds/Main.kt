@@ -1,5 +1,8 @@
 package ru.hukutoc2288.averageseeds
 
+import com.fasterxml.jackson.annotation.JsonInclude
+import com.fasterxml.jackson.module.kotlin.KotlinModule
+import com.fasterxml.jackson.module.kotlin.jsonMapper
 import org.springframework.boot.SpringApplication
 import retrofit2.Call
 import retrofit2.HttpException
@@ -16,6 +19,12 @@ const val requestRetryTimeMinutes = 10
 const val startMinute = 3
 const val packSize = 1000
 const val daysCycle = 31
+
+
+val mapper = jsonMapper {
+    addModule(KotlinModule.Builder().build())
+    serializationInclusion(JsonInclude.Include.NON_NULL)
+}
 
 var previousDay = (LocalDate.now().toEpochDay() % daysCycle).toInt()
 val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale("ru"))
@@ -58,6 +67,8 @@ fun updateSeeds() {
             }
         }
     }
+    // virtual topic to count main updates
+    topicsList.add(SeedsInsertItem(-1, -1, 0))
     if (topicsList.isNotEmpty())
         insertSeeds.invoke()
     SeedsRepository.commitNewSeeds(currentDay, currentDay != previousDay)
