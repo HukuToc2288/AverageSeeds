@@ -12,7 +12,7 @@ import ru.hukutoc2288.averageseeds.previousDay
 class SeedsController {
 
     @GetMapping("/seeds", produces = ["application/json"])
-    fun greeting(@RequestParam(name = "subsections", required = true) subsections: IntArray): String {
+    fun greeting(@RequestParam(name = "subsections", required = false) subsections: IntArray?): String {
         val mainUpdatesCount = SeedsRepository.getMainUpdates(
             previousDay
         )

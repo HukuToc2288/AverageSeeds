@@ -189,10 +189,10 @@ object SeedsRepository {
 
     fun getSeedsInSubsections(
         currentDay: Int,
-        subsections: IntArray,
+        subsections: IntArray?,
         mainUpdatesCount: IntArray
     ): Map<Int, Map<Int, TopicResponseItem>> {
-        if (subsections.isEmpty())
+        if (subsections?.isNotEmpty() != true)
             return emptyMap()
         if (mainUpdatesCount.size != 30)
             throw IllegalArgumentException("mainUpdatesCount size must be 30")
