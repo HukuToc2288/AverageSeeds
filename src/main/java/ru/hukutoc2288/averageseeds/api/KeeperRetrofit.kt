@@ -17,7 +17,7 @@ private fun createKeeperApi(): KeeperApi {
         //.addInterceptor(HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BASIC))
 
     return Retrofit.Builder()
-        .baseUrl("https://api.t-ru.org/")
+        .baseUrl("https://api.rutracker.cc/")
         .addConverterFactory(JacksonConverterFactory.create(ObjectMapper().apply {
             configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES,false)
         }))
