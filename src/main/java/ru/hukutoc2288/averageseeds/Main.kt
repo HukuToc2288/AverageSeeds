@@ -79,16 +79,21 @@ fun updateSeeds() {
 }
 
 fun main(args: Array<String>) {
-    if (args.contains("once")) {
+    val realArgs = args.clone()
+    if (realArgs.contains("once")) {
         println("Обновляем сиды один раз и запускаем без API")
         updateSeeds()
         return
     } else {
-        if (args.contains("noapi")) {
+        if (realArgs.contains("noapi")) {
             println("Запускаем без API")
         } else {
-            SpringApplication.run(SeedsSpringApplication::class.java)
+            SpringApplication.run(SeedsSpringApplication::class.java, *args)
         }
+    }
+    if (realArgs.contains("now")){
+        println("Обновляем сиды прямо сейчас")
+        updateSeeds()
     }
     //ru.hukutoc2288.averageseeds.SeedsRepository.incrementSeedsCount(1, 1, 1, 1)
     val startTime = GregorianCalendar()

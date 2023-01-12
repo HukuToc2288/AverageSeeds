@@ -207,7 +207,6 @@ object SeedsRepository {
             resultSet = statement.executeQuery(
                 "SELECT * FROM Topics WHERE ss IN (${subsections.joinToString(",")})"
             )
-            connection.commit()
             while (resultSet.next()) {
                 val updatesCount = IntArray(30)
                 val totalSeedsCount = IntArray(30)
