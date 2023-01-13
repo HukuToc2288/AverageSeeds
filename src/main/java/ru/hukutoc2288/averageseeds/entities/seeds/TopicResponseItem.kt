@@ -1,4 +1,4 @@
-package ru.hukutoc2288.averageseeds.entities.web
+package ru.hukutoc2288.averageseeds.entities.seeds
 
 import com.fasterxml.jackson.annotation.JsonProperty
 

@@ -1,4 +1,4 @@
-package ru.hukutoc2288.averageseeds.entities.web
+package ru.hukutoc2288.averageseeds.entities.seeds
 
 class SeedsResponseBody(
     var success: Boolean,

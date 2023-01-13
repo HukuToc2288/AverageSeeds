@@ -1,19 +1,17 @@
 package ru.hukutoc2288.averageseeds.web
 
 import org.springframework.http.HttpStatus
-import org.springframework.http.HttpStatusCode
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.client.HttpClientErrorException
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody
-import ru.hukutoc2288.averageseeds.SeedsRepository
+import ru.hukutoc2288.averageseeds.utils.SeedsRepository
 import ru.hukutoc2288.averageseeds.mapper
 import ru.hukutoc2288.averageseeds.dayToRead
 import ru.hukutoc2288.averageseeds.daysCycle
-import ru.hukutoc2288.averageseeds.entities.web.CurrentDayResponseBody
-import ru.hukutoc2288.averageseeds.entities.web.SeedsResponseBody
+import ru.hukutoc2288.averageseeds.entities.seeds.CurrentDayResponseBody
 import java.io.OutputStream
 
 private const val SUBSECTION_START = -2

@@ -6,11 +6,12 @@ import com.fasterxml.jackson.module.kotlin.jsonMapper
 import org.springframework.boot.SpringApplication
 import retrofit2.Call
 import retrofit2.HttpException
-import ru.hukutoc2288.averageseeds.api.keeperRetrofit
+import ru.hukutoc2288.averageseeds.api.keeper.keeperRetrofit
 import ru.hukutoc2288.averageseeds.entities.SeedsInsertItem
+import ru.hukutoc2288.averageseeds.utils.SeedsProperties
+import ru.hukutoc2288.averageseeds.utils.SeedsRepository
 import ru.hukutoc2288.averageseeds.web.SeedsSpringApplication
 import java.text.SimpleDateFormat
-import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -19,7 +20,6 @@ import java.util.concurrent.*
 
 const val maxRequestAttempts = 3
 const val requestRetryTimeMinutes = 10
-const val startMinute = 3
 const val packSize = 1000
 const val daysCycle = 31
 val syncTimeZone = ZoneId.of("Europe/Moscow")
@@ -80,6 +80,9 @@ fun updateSeeds() {
     if (topicsList.isNotEmpty())
         insertSeeds.invoke()
     SeedsRepository.commitNewSeeds(currentDay, currentDay != previousDay)
+    if (currentDay != previousDay){
+        // TODO: 13.01.2023 sync
+    }
     previousDay = currentDay
     println("Обновление всех разделов завершено за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
     System.gc()
@@ -88,6 +91,7 @@ fun updateSeeds() {
 
 fun main(args: Array<String>) {
     if (args.contains("once")) {
+        SeedsProperties.load()
         println("Обновляем сиды один раз и запускаем без API")
         updateSeeds()
         return
@@ -98,6 +102,7 @@ fun main(args: Array<String>) {
             SpringApplication.run(SeedsSpringApplication::class.java, *args)
         }
     }
+    SeedsProperties.load()
     if (args.contains("now")) {
         println("Обновляем сиды прямо сейчас")
         updateSeeds()
@@ -109,11 +114,11 @@ fun main(args: Array<String>) {
     )
     println("Сегодняшний день в БД — $dayToRead")
     val startTime = GregorianCalendar()
-    if (startTime.get(Calendar.MINUTE) >= startMinute) {
+    if (startTime.get(Calendar.MINUTE) >= SeedsProperties.updateMinute) {
         // если уже пропустили время то выполним через час
         startTime.add(Calendar.HOUR, 1)
     }
-    startTime.set(Calendar.MINUTE, startMinute)
+    startTime.set(Calendar.MINUTE, SeedsProperties.updateMinute)
     val delay = startTime.timeInMillis - System.currentTimeMillis()
     println("Ближайшее обновление будет выполнено через ${(delay / 1000 / 60).toInt()} минут")
     updateScheduler.scheduleAtFixedRate({ updateSeeds() }, delay, 1000 * 60 * 60, TimeUnit.MILLISECONDS)

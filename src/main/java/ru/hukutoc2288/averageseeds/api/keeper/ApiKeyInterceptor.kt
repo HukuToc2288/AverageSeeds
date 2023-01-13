@@ -1,4 +1,4 @@
-package ru.hukutoc2288.averageseeds.api
+package ru.hukutoc2288.averageseeds.api.keeper
 
 import okhttp3.HttpUrl
 import okhttp3.Interceptor

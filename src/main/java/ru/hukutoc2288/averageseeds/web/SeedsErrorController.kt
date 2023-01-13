@@ -2,13 +2,11 @@ package ru.hukutoc2288.averageseeds.web
 
 import jakarta.servlet.RequestDispatcher
 import jakarta.servlet.http.HttpServletRequest
-import jakarta.servlet.http.HttpServletResponse
 import org.springframework.boot.web.servlet.error.ErrorController
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RestController
-import ru.hukutoc2288.averageseeds.SeedsRepository
-import ru.hukutoc2288.averageseeds.entities.web.SeedsResponseBody
+import ru.hukutoc2288.averageseeds.entities.seeds.SeedsResponseBody
 import ru.hukutoc2288.averageseeds.mapper
 
 @RestController

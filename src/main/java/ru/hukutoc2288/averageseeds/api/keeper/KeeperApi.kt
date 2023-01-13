@@ -1,4 +1,4 @@
-package ru.hukutoc2288.averageseeds.api
+package ru.hukutoc2288.averageseeds.api.keeper
 
 import retrofit2.Call
 import retrofit2.http.GET

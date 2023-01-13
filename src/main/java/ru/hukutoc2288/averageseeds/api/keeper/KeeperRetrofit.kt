@@ -1,10 +1,11 @@
-package ru.hukutoc2288.averageseeds.api
+package ru.hukutoc2288.averageseeds.api.keeper
 
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.ObjectMapper
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.jackson.JacksonConverterFactory
+import ru.hukutoc2288.averageseeds.api.UserAgentInterceptor
 
 
 var keeperRetrofit = createKeeperApi()

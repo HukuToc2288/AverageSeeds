@@ -1,10 +1,9 @@
-package ru.hukutoc2288.averageseeds
+package ru.hukutoc2288.averageseeds.utils
 
 import org.sqlite.SQLiteConfig
 import ru.hukutoc2288.averageseeds.entities.SeedsInsertItem
 import ru.hukutoc2288.averageseeds.entities.TopicItem
-import ru.hukutoc2288.averageseeds.entities.web.TopicResponseItem
-import ru.hukutoc2288.averageseeds.utils.CachingIterator
+import ru.hukutoc2288.averageseeds.entities.seeds.TopicResponseItem
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.PreparedStatement
