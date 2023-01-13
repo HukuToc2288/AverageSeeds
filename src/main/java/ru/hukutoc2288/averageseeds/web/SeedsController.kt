@@ -7,7 +7,8 @@ import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody
 import ru.hukutoc2288.averageseeds.SeedsRepository
 import ru.hukutoc2288.averageseeds.mapper
-import ru.hukutoc2288.averageseeds.previousDay
+import ru.hukutoc2288.averageseeds.dayToRead
+import ru.hukutoc2288.averageseeds.entities.web.CurrentDayResponseBody
 import java.io.OutputStream
 
 private const val SUBSECTION_START = -2
@@ -19,8 +20,8 @@ class SeedsController {
     fun greeting(
         @RequestParam(name = "subsections", required = false) subsections: IntArray?
     ): ResponseEntity<StreamingResponseBody> {
-        val mainUpdatesCount = SeedsRepository.getMainUpdates(previousDay)
-        val topicsIterator = SeedsRepository.getSeedsInSubsections(previousDay, subsections, mainUpdatesCount)
+        val mainUpdatesCount = SeedsRepository.getMainUpdates(dayToRead)
+        val topicsIterator = SeedsRepository.getSeedsInSubsections(dayToRead, subsections, mainUpdatesCount)
         val responseBody = StreamingResponseBody { responseStream ->
             // building answer manually, as we may run OOM on potato PC
             responseStream.write("{\"success\":true,\"mainUpdatesCount\":")
@@ -53,6 +54,16 @@ class SeedsController {
             responseStream.close()
         }
         return ResponseEntity.ok().body(responseBody)
+    }
+
+    @GetMapping("/currentDay", produces = ["application/json"])
+    fun getCurrentDay(): String {
+        return mapper.writeValueAsString(
+            CurrentDayResponseBody(
+                true,
+                dayToRead
+            )
+        )
     }
 }
 
