@@ -2,13 +2,16 @@ package ru.hukutoc2288.averageseeds
 
 import org.sqlite.SQLiteConfig
 import ru.hukutoc2288.averageseeds.entities.SeedsInsertItem
+import ru.hukutoc2288.averageseeds.entities.TopicItem
 import ru.hukutoc2288.averageseeds.entities.web.TopicResponseItem
+import ru.hukutoc2288.averageseeds.utils.CachingIterator
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.SQLException
 import java.sql.Statement
+import java.util.Collections
 
 object SeedsRepository {
 
@@ -191,41 +194,44 @@ object SeedsRepository {
         currentDay: Int,
         subsections: IntArray?,
         mainUpdatesCount: IntArray
-    ): Map<Int, Map<Int, TopicResponseItem>> {
+    ): Iterator<TopicItem> {
         if (subsections?.isNotEmpty() != true)
-            return emptyMap()
+            return Collections.emptyIterator()
         if (mainUpdatesCount.size != 30)
             throw IllegalArgumentException("mainUpdatesCount size must be 30")
         var statement: Statement? = null
         var resultSet: ResultSet? = null
-        val seedsInSubsections = HashMap<Int, MutableMap<Int, TopicResponseItem>>()
         try {
-            for (subsection in subsections) {
-                seedsInSubsections[subsection] = HashMap()
-            }
             statement = connection.createStatement()
             resultSet = statement.executeQuery(
-                "SELECT * FROM Topics WHERE ss IN (${subsections.joinToString(",")})"
+                "SELECT * FROM Topics WHERE ss IN (${subsections.joinToString(",")}) ORDER BY ss"
             )
-            while (resultSet.next()) {
-                val updatesCount = IntArray(30)
-                val totalSeedsCount = IntArray(30)
-                for (day in 0 until daysCycle - 1) {
-                    // получаем номер дня циклически
-                    val dayToSelect = (daysCycle + currentDay - day - 1) % daysCycle
-                    updatesCount[day] = resultSet.getInt("u$dayToSelect")
-                    totalSeedsCount[day] = resultSet.getInt("s$dayToSelect")
-                }
-                seedsInSubsections[resultSet.getInt("ss")]!![resultSet.getInt("id")] =
-                    TopicResponseItem(
-                        totalSeedsCount,
-                        if (!updatesCount.contentEquals(mainUpdatesCount)) updatesCount else null
+            return object : CachingIterator<TopicItem>(resultSet) {
+                override fun processResult(resultSet: ResultSet): TopicItem {
+                    val updatesCount = IntArray(30)
+                    val totalSeedsCount = IntArray(30)
+                    for (day in 0 until daysCycle - 1) {
+                        // получаем номер дня циклически
+                        val dayToSelect = (daysCycle + currentDay - day - 1) % daysCycle
+                        updatesCount[day] = resultSet.getInt("u$dayToSelect")
+                        totalSeedsCount[day] = resultSet.getInt("s$dayToSelect")
+                    }
+                    return TopicItem(
+                        resultSet.getInt("ss"),
+                        resultSet.getInt("id"),
+                        TopicResponseItem(
+                            totalSeedsCount,
+                            if (mainUpdatesCount.contentEquals(updatesCount))
+                                null
+                            else
+                                updatesCount
+                        )
                     )
+                }
+            }.apply {
+                addResource(statement)
             }
-            return seedsInSubsections
         } finally {
-            resultSet?.close()
-            statement?.close()
         }
     }
 }
