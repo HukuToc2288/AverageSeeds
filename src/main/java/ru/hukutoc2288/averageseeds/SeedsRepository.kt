@@ -169,19 +169,22 @@ object SeedsRepository {
         }
     }
 
-    fun getMainUpdates(currentDay: Int): IntArray {
+    fun getMainUpdates(currentDay: Int, daysToRequest: IntArray): IntArray {
         var statement: Statement? = null
         var resultSet: ResultSet? = null
+        val columnsToSelect = StringBuilder()
+        columnsToSelect.append("id,ss")
+        for (d in daysToRequest) {
+            columnsToSelect.append(",u$d")
+        }
         try {
             statement = connection.createStatement()
-            resultSet = statement.executeQuery("SELECT * FROM TOPICS WHERE id=-1 LIMIT 1")
-            val mainUpdatesCount = IntArray(30)
+            resultSet = statement.executeQuery("SELECT $columnsToSelect FROM TOPICS WHERE id=-1 LIMIT 1")
+            val mainUpdatesCount = IntArray(daysToRequest.size)
             if (!resultSet.next())
                 throw SQLException("Main updates not acquired, this doesn't suppose to happen!")
-            for (day in 0 until daysCycle - 1) {
-                // получаем номер дня циклически
-                val dayToSelect = (daysCycle + currentDay - day - 1) % daysCycle
-                mainUpdatesCount[day] = resultSet.getInt("u$dayToSelect")
+            for ((posInArray, day) in daysToRequest.withIndex()) {
+                mainUpdatesCount[posInArray] = resultSet.getInt("u$day")
             }
             return mainUpdatesCount
         } finally {
@@ -193,28 +196,33 @@ object SeedsRepository {
     fun getSeedsInSubsections(
         currentDay: Int,
         subsections: IntArray?,
-        mainUpdatesCount: IntArray
+        mainUpdatesCount: IntArray,
+        daysToRequest: IntArray
     ): Iterator<TopicItem> {
-        if (subsections?.isNotEmpty() != true)
+        if (subsections?.isNotEmpty() != true || daysToRequest.isEmpty())
             return Collections.emptyIterator()
-        if (mainUpdatesCount.size != 30)
-            throw IllegalArgumentException("mainUpdatesCount size must be 30")
+//        if (mainUpdatesCount.size != 30)
+//            throw IllegalArgumentException("mainUpdatesCount size must be 30")
         var statement: Statement? = null
         var resultSet: ResultSet? = null
+        val columnsToSelect = StringBuilder()
+        columnsToSelect.append("id,ss")
+        for (d in daysToRequest) {
+            columnsToSelect.append(",s$d,u$d")
+        }
         try {
             statement = connection.createStatement()
             resultSet = statement.executeQuery(
-                "SELECT * FROM Topics WHERE ss IN (${subsections.joinToString(",")}) ORDER BY ss"
+                "SELECT $columnsToSelect FROM Topics WHERE ss IN (${subsections.joinToString(",")})" +
+                        " ORDER BY ss"
             )
             return object : CachingIterator<TopicItem>(resultSet) {
                 override fun processResult(resultSet: ResultSet): TopicItem {
-                    val updatesCount = IntArray(30)
-                    val totalSeedsCount = IntArray(30)
-                    for (day in 0 until daysCycle - 1) {
-                        // получаем номер дня циклически
-                        val dayToSelect = (daysCycle + currentDay - day - 1) % daysCycle
-                        updatesCount[day] = resultSet.getInt("u$dayToSelect")
-                        totalSeedsCount[day] = resultSet.getInt("s$dayToSelect")
+                    val updatesCount = IntArray(daysToRequest.size)
+                    val totalSeedsCount = IntArray(daysToRequest.size)
+                    for ((posInArray, day) in daysToRequest.withIndex()) {
+                        updatesCount[posInArray] = resultSet.getInt("u$day")
+                        totalSeedsCount[posInArray] = resultSet.getInt("s$day")
                     }
                     return TopicItem(
                         resultSet.getInt("ss"),

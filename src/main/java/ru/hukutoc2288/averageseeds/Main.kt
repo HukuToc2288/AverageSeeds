@@ -107,7 +107,7 @@ fun main(args: Array<String>) {
             LocalDateTime.now(syncTimeZone).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
         }. Если это ошибка, настройте время и часовые пояса на компьютере!"
     )
-
+    println("Сегодняшний день в БД — $dayToRead")
     val startTime = GregorianCalendar()
     if (startTime.get(Calendar.MINUTE) >= startMinute) {
         // если уже пропустили время то выполним через час
