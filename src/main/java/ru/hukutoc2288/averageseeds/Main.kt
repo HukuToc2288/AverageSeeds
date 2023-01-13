@@ -11,6 +11,9 @@ import ru.hukutoc2288.averageseeds.entities.SeedsInsertItem
 import ru.hukutoc2288.averageseeds.web.SeedsSpringApplication
 import java.text.SimpleDateFormat
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.*
 import java.util.concurrent.*
 
@@ -19,14 +22,15 @@ const val requestRetryTimeMinutes = 10
 const val startMinute = 3
 const val packSize = 1000
 const val daysCycle = 31
-
+val syncTimeZone = ZoneId.of("Europe/Moscow")
 
 val mapper = jsonMapper {
     addModule(KotlinModule.Builder().build())
     serializationInclusion(JsonInclude.Include.NON_NULL)
 }
 
-var previousDay = (LocalDate.now().toEpochDay() % daysCycle).toInt()
+private var previousDay = (LocalDateTime.now(syncTimeZone).toLocalDate().toEpochDay() % daysCycle).toInt()
+var dayToRead = previousDay // день, за который мы должны читать
 val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale("ru"))
 
 val updateScheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
@@ -35,7 +39,11 @@ fun updateSeeds() {
     val startTime = System.currentTimeMillis()
     println(sdf.format(Date()))
     // номер ячейки текущего дня в БД
-    val currentDay = (LocalDate.now().toEpochDay() % daysCycle).toInt()
+    val currentDay = (LocalDateTime.now(syncTimeZone).toLocalDate().toEpochDay() % daysCycle).toInt()
+    if (currentDay != previousDay) {
+        // Предыдущий день уже закрыт и его можно читать
+        dayToRead = currentDay
+    }
     println("День $currentDay, предыдущий $previousDay")
     println("Получение количества раздач по разделам...")
     val forumSize = try {
@@ -79,23 +87,27 @@ fun updateSeeds() {
 }
 
 fun main(args: Array<String>) {
-    val realArgs = args.clone()
-    if (realArgs.contains("once")) {
+    if (args.contains("once")) {
         println("Обновляем сиды один раз и запускаем без API")
         updateSeeds()
         return
     } else {
-        if (realArgs.contains("noapi")) {
+        if (args.contains("noapi")) {
             println("Запускаем без API")
         } else {
             SpringApplication.run(SeedsSpringApplication::class.java, *args)
         }
     }
-    if (realArgs.contains("now")){
+    if (args.contains("now")) {
         println("Обновляем сиды прямо сейчас")
         updateSeeds()
     }
-    //ru.hukutoc2288.averageseeds.SeedsRepository.incrementSeedsCount(1, 1, 1, 1)
+    println(
+        "Московское время ${
+            LocalDateTime.now(syncTimeZone).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+        }. Если это ошибка, настройте время и часовые пояса на компьютере!"
+    )
+
     val startTime = GregorianCalendar()
     if (startTime.get(Calendar.MINUTE) >= startMinute) {
         // если уже пропустили время то выполним через час
