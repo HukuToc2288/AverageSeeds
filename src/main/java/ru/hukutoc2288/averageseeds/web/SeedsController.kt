@@ -12,6 +12,7 @@ import ru.hukutoc2288.averageseeds.mapper
 import ru.hukutoc2288.averageseeds.dayToRead
 import ru.hukutoc2288.averageseeds.daysCycle
 import ru.hukutoc2288.averageseeds.entities.seeds.CurrentDayResponseBody
+import ru.hukutoc2288.averageseeds.entities.seeds.VersionResponseBody
 import java.io.OutputStream
 
 private const val SUBSECTION_START = -2
@@ -27,7 +28,7 @@ class SeedsController {
         // подгоняем дни под кольцевой буфер
         daysToRequest?.let {
             for (i in it.indices) {
-                if (it[i] >= daysCycle-1 || it[i] < 0) {
+                if (it[i] >= daysCycle - 1 || it[i] < 0) {
                     throw HttpClientErrorException(HttpStatus.BAD_REQUEST, "Incorrect day: ${it[i]}")
                 }
                 it[i] = (daysCycle + dayToRead - it[i] - 1) % daysCycle
@@ -79,6 +80,11 @@ class SeedsController {
                 dayToRead
             )
         )
+    }
+
+    @GetMapping("/version", produces = ["application/json"])
+    fun getVersion(): String {
+        return mapper.writeValueAsString(VersionResponseBody())
     }
 }
 
