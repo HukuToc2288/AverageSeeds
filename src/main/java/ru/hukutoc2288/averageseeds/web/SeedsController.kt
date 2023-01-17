@@ -40,7 +40,7 @@ class SeedsController {
             SeedsRepository.getSeedsInSubsections(dayToRead, subsections, mainUpdatesCount, daysToRequest)
         val responseBody = StreamingResponseBody { responseStream ->
             // building answer manually, as we may run OOM on potato PC
-            responseStream.write("{\"success\":true,\"mainUpdatesCount\":")
+            responseStream.write("{\"mainUpdatesCount\":")
             responseStream.write(mapper.writeValueAsBytes(mainUpdatesCount))
             responseStream.write(",\"subsections\":{")
             var currentSubsection = SUBSECTION_START
@@ -76,7 +76,6 @@ class SeedsController {
     fun getCurrentDay(): String {
         return mapper.writeValueAsString(
             CurrentDayResponseBody(
-                true,
                 dayToRead
             )
         )

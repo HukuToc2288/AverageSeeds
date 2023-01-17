@@ -20,7 +20,6 @@ class SeedsErrorController : ErrorController {
         val errorMessage = request.getAttribute(RequestDispatcher.ERROR_MESSAGE) as String?
         return mapper.writeValueAsString(
             SeedsResponseBody(
-                false,
                 if (errorMessage.isNullOrEmpty())
                     HttpStatus.valueOf(
                         request.getAttribute(RequestDispatcher.ERROR_STATUS_CODE) as Int
