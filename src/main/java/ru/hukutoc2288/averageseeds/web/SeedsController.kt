@@ -26,14 +26,6 @@ class SeedsController {
         @RequestParam(name = "days", required = false) daysToRequest: IntArray?
     ): ResponseEntity<StreamingResponseBody> {
         // подгоняем дни под кольцевой буфер
-        daysToRequest?.let {
-            for (i in it.indices) {
-                if (it[i] >= daysCycle - 1 || it[i] < 0) {
-                    throw HttpClientErrorException(HttpStatus.BAD_REQUEST, "Incorrect day: ${it[i]}")
-                }
-                it[i] = (daysCycle + dayToRead - it[i] - 1) % daysCycle
-            }
-        }
         val daysToRequest = if (daysToRequest?.isEmpty() != false) (0..29).toList().toIntArray() else daysToRequest
         val mainUpdatesCount = SeedsRepository.getMainUpdates(dayToRead, daysToRequest)
         val topicsIterator =

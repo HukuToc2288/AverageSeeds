@@ -1,8 +1,9 @@
 package ru.hukutoc2288.averageseeds.utils
 
 import org.sqlite.SQLiteConfig
-import ru.hukutoc2288.averageseeds.entities.SeedsInsertItem
-import ru.hukutoc2288.averageseeds.entities.TopicItem
+import ru.hukutoc2288.averageseeds.entities.db.SeedsInsertItem
+import ru.hukutoc2288.averageseeds.entities.db.SeedsSyncItem
+import ru.hukutoc2288.averageseeds.entities.db.TopicItem
 import ru.hukutoc2288.averageseeds.entities.seeds.TopicResponseItem
 import java.sql.Connection
 import java.sql.DriverManager
@@ -168,21 +169,97 @@ object SeedsRepository {
         }
     }
 
+    fun createSyncSeedsTable(tableDaysToSync: IntArray) {
+        var statement: Statement? = null
+        try {
+            statement = connection.createStatement()
+            statement.addBatch("DROP TABLE IF EXISTS temp.TopicsNew")
+            val createTableQuery = StringBuilder()
+            createTableQuery.append(
+                "CREATE TEMPORARY TABLE TopicsNew (" +
+                        "id INT NOT NULL PRIMARY KEY," +
+                        "ss INT NOT NULL"
+            )
+            for (day in tableDaysToSync) {
+                createTableQuery.append(",u$day INT,s$day INT")
+            }
+            createTableQuery.append(")")
+            statement.addBatch(createTableQuery.toString())
+            statement.executeBatch()
+            connection.commit()
+        } finally {
+            statement?.close()
+        }
+    }
+
+    fun appendSyncSeeds(topics: Collection<SeedsSyncItem>) {
+        if (topics.isEmpty())
+            return
+        val valuesCount = topics.first().updatesCount.size  // количество значений вставляемых в БД
+        var statement: PreparedStatement? = null
+        try {
+            statement = connection.prepareStatement(
+                "INSERT OR REPLACE INTO temp.TopicsNew VALUES (?${",?".repeat(valuesCount * 2)})"
+            )
+            // эта цыганская магия позволит нам вставлять значения в нужные ячейки и не таскать с собой индексы
+            for (topic in topics) {
+                statement.setInt(1, topic.topicId)
+                for (i in 0 until valuesCount) {
+                    statement.setInt(i * 2 + 2, topic.updatesCount[i])
+                    statement.setInt(i * 2 + 3, topic.totalSeeds[i])
+                }
+            }
+            statement.executeBatch()
+            connection.commit()
+        } finally {
+            statement?.close()
+        }
+    }
+
+    fun commitSyncSeeds(tableDaysToSync: IntArray) {
+        var insertStatement: Statement? = null
+        try {
+            insertStatement = connection.createStatement()
+            val insertSyncQuery = StringBuilder()
+            insertSyncQuery.append("UPDATE Topics SET ")
+            for (day in tableDaysToSync) {
+                // FIXME: 17.01.2023 это явно можнет делаться проще и я чего-то не знаю
+                insertSyncQuery.append("u$day=excluded.u$day,s$day=excluded.s$day,")
+            }
+            insertSyncQuery.setCharAt(insertSyncQuery.length - 1, ' ')
+            insertSyncQuery.append("FROM (SELECT * FROM temp.TopicsNew WHERE Topics.id = temp.TopicsNew.id")
+            insertStatement.addBatch(insertSyncQuery.toString())
+            insertStatement.executeBatch()
+            connection.commit()
+        } finally {
+            insertStatement?.close()
+            var dropStatement: Statement? = null
+            try {
+                dropStatement = connection.createStatement()
+                dropStatement.execute("DROP TABLE temp.TopicsNew")
+                connection.commit()
+            } finally {
+                dropStatement?.close()
+            }
+        }
+    }
+
     fun getMainUpdates(currentDay: Int, daysToRequest: IntArray): IntArray {
         var statement: Statement? = null
         var resultSet: ResultSet? = null
         val columnsToSelect = StringBuilder()
         columnsToSelect.append("id,ss")
-        for (d in daysToRequest) {
+        val cellsToRequest = daysToRequest.daysToCells(currentDay)
+        for (d in cellsToRequest) {
             columnsToSelect.append(",u$d")
         }
         try {
             statement = connection.createStatement()
             resultSet = statement.executeQuery("SELECT $columnsToSelect FROM TOPICS WHERE id=-1 LIMIT 1")
-            val mainUpdatesCount = IntArray(daysToRequest.size)
+            val mainUpdatesCount = IntArray(cellsToRequest.size)
             if (!resultSet.next())
                 throw SQLException("Main updates not acquired, this doesn't suppose to happen!")
-            for ((posInArray, day) in daysToRequest.withIndex()) {
+            for ((posInArray, day) in cellsToRequest.withIndex()) {
                 mainUpdatesCount[posInArray] = resultSet.getInt("u$day")
             }
             return mainUpdatesCount
@@ -206,7 +283,8 @@ object SeedsRepository {
         var resultSet: ResultSet? = null
         val columnsToSelect = StringBuilder()
         columnsToSelect.append("id,ss")
-        for (d in daysToRequest) {
+        val cellsToRequest = daysToRequest.daysToCells(currentDay)
+        for (d in cellsToRequest) {
             columnsToSelect.append(",s$d,u$d")
         }
         try {
@@ -217,9 +295,9 @@ object SeedsRepository {
             )
             return object : CachingIterator<TopicItem>(resultSet) {
                 override fun processResult(resultSet: ResultSet): TopicItem {
-                    val updatesCount = IntArray(daysToRequest.size)
-                    val totalSeedsCount = IntArray(daysToRequest.size)
-                    for ((posInArray, day) in daysToRequest.withIndex()) {
+                    val updatesCount = IntArray(cellsToRequest.size)
+                    val totalSeedsCount = IntArray(cellsToRequest.size)
+                    for ((posInArray, day) in cellsToRequest.withIndex()) {
                         updatesCount[posInArray] = resultSet.getInt("u$day")
                         totalSeedsCount[posInArray] = resultSet.getInt("s$day")
                     }
