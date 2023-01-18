@@ -164,7 +164,7 @@ fun syncSeeds(subsections: Collection<Int>) {
                 return@urlBlock
             }
             val updatesInRemoteBetterDays = IntArray(remoteBetterDays.size) {
-                remoteUpdatesCount[remoteBetterDays[it]]
+                remoteUpdatesCount[daysToSync.indexOf(remoteBetterDays[it])]
             }
 
             val cellsToSync = remoteBetterDays.toIntArray().daysToCells(dayToRead)
@@ -202,6 +202,7 @@ fun syncSeeds(subsections: Collection<Int>) {
             if (topicsList.isNotEmpty())
                 updateSeeds.invoke()
             SeedsRepository.commitSyncSeeds(cellsToSync)
+            pendingSyncUrls.remove(url)
         }
     }
     if (pendingSyncUrls.isEmpty()) {
