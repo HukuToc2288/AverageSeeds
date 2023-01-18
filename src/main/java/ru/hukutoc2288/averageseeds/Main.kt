@@ -227,6 +227,11 @@ fun main(args: Array<String>) {
     }
     SeedsProperties.load()
 
+    if (args.contains("sync")) {
+        println("Синхронизация будет принудительно выполнена после ближайшего обновления")
+        pendingSyncUrls.clear()
+        pendingSyncUrls.addAll(SeedsProperties.syncUrls)
+    }
     if (args.contains("now")) {
         println("Обновляем сиды прямо сейчас")
         updateSeeds()
@@ -236,17 +241,6 @@ fun main(args: Array<String>) {
             LocalDateTime.now(syncTimeZone).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
         }. Если это ошибка, настройте время и часовые пояса на компьютере!"
     )
-    if (args.contains("sync")) {
-        println("Выполняем принудительную синхронизацию")
-        pendingSyncUrls.clear()
-        pendingSyncUrls.addAll(SeedsProperties.syncUrls)
-        syncSeeds(try {
-            persistOnResponse { keeperRetrofit.forumSize() }
-        } catch (e: Exception) {
-            println("Не удалось получить дерево подразделов: $e")
-            return
-        }.result.keys)
-    }
     println("Сегодняшний день в БД — $dayToRead")
     val startTime = GregorianCalendar()
     if (startTime.get(Calendar.MINUTE) >= SeedsProperties.updateMinute) {
