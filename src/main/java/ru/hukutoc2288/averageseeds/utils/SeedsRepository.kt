@@ -173,12 +173,11 @@ object SeedsRepository {
         var statement: Statement? = null
         try {
             statement = connection.createStatement()
-            statement.addBatch("DROP TABLE IF EXISTS temp.TopicsNew")
+            statement.addBatch("DROP TABLE IF EXISTS TopicsNew")
             val createTableQuery = StringBuilder()
             createTableQuery.append(
-                "CREATE TEMPORARY TABLE TopicsNew (" +
-                        "id INT NOT NULL PRIMARY KEY," +
-                        "ss INT NOT NULL"
+                "CREATE TABLE TopicsNew (" +
+                        "id INT NOT NULL PRIMARY KEY"
             )
             for (day in tableDaysToSync) {
                 createTableQuery.append(",u$day INT,s$day INT")
@@ -199,7 +198,7 @@ object SeedsRepository {
         var statement: PreparedStatement? = null
         try {
             statement = connection.prepareStatement(
-                "INSERT OR REPLACE INTO temp.TopicsNew VALUES (?${",?".repeat(valuesCount * 2)})"
+                "INSERT OR REPLACE INTO TopicsNew VALUES (?${",?".repeat(valuesCount * 2)})"
             )
             // эта цыганская магия позволит нам вставлять значения в нужные ячейки и не таскать с собой индексы
             for (topic in topics) {
@@ -208,6 +207,7 @@ object SeedsRepository {
                     statement.setInt(i * 2 + 2, topic.updatesCount[i])
                     statement.setInt(i * 2 + 3, topic.totalSeeds[i])
                 }
+                statement.addBatch()
             }
             statement.executeBatch()
             connection.commit()
@@ -224,10 +224,10 @@ object SeedsRepository {
             insertSyncQuery.append("UPDATE Topics SET ")
             for (day in tableDaysToSync) {
                 // FIXME: 17.01.2023 это явно можнет делаться проще и я чего-то не знаю
-                insertSyncQuery.append("u$day=excluded.u$day,s$day=excluded.s$day,")
+                insertSyncQuery.append("u$day=t.u$day,s$day=t.s$day,")
             }
             insertSyncQuery.setCharAt(insertSyncQuery.length - 1, ' ')
-            insertSyncQuery.append("FROM (SELECT * FROM temp.TopicsNew WHERE Topics.id = temp.TopicsNew.id")
+            insertSyncQuery.append("FROM (SELECT * FROM TopicsNew) as t WHERE Topics.id = t.id")
             insertStatement.addBatch(insertSyncQuery.toString())
             insertStatement.executeBatch()
             connection.commit()
@@ -236,7 +236,7 @@ object SeedsRepository {
             var dropStatement: Statement? = null
             try {
                 dropStatement = connection.createStatement()
-                dropStatement.execute("DROP TABLE temp.TopicsNew")
+                dropStatement.execute("DROP TABLE TopicsNew")
                 connection.commit()
             } finally {
                 dropStatement?.close()

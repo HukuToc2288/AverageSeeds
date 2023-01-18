@@ -10,14 +10,16 @@ import ru.hukutoc2288.averageseeds.entities.seeds.SeedsResponseBody
 interface SeedsApi {
 
     @GET("currentDay")
-    fun getCurrentDay(
-        @Url url: String,
-    ): Call<CurrentDayResponseBody>
+    fun getCurrentDay(): Call<CurrentDayResponseBody>
 
     @GET("seeds")
     fun getSingleSubsectionSeeds(
-        @Url url: String,
         @Query("subsections") subsection: Int,
+        @Query("days") daysString: String
+    ): Call<SeedsResponseBody>
+
+    @GET("seeds")
+    fun getMainUpdatesCount(
         @Query("days") daysString: String
     ): Call<SeedsResponseBody>
 }

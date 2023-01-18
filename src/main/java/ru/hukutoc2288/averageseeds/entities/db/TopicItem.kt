@@ -1,4 +1,4 @@
-package ru.hukutoc2288.averageseeds.entities
+package ru.hukutoc2288.averageseeds.entities.db
 
 import ru.hukutoc2288.averageseeds.entities.seeds.TopicResponseItem
 

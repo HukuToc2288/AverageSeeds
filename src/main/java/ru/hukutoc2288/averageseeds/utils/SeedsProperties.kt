@@ -11,7 +11,7 @@ object SeedsProperties {
     val syncUrlsKey = "syncUrls"
 
     var updateMinute: Int = 0
-    lateinit var syncUrls: Collection<String>
+    lateinit var syncUrls: List<String>
 
 
     fun load() {
@@ -28,17 +28,24 @@ object SeedsProperties {
         }
     }
 
-    private fun setVariablesFromProperties(properties: Properties){
+    private fun setVariablesFromProperties(properties: Properties) {
         updateMinute = (properties[updateMinuteKey] as String).toInt()
-        syncUrls = (properties[updateMinuteKey] as String).split(';').map {
-            val urlBuilder = StringBuilder()
-            if (!it.startsWith("http://") && !it.startsWith("https://")) {
-                urlBuilder.append("http://")
+        syncUrls = run {
+            val rawList = (properties[syncUrlsKey] as String).split(';')
+            val returnList = ArrayList<String>()
+            for (rawUrl in rawList){
+                if (rawUrl.isEmpty())
+                    continue
+                val urlBuilder = StringBuilder()
+                if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
+                    urlBuilder.append("http://")
+                }
+                urlBuilder.append(rawUrl)
+                if (!rawUrl.endsWith('/'))
+                    urlBuilder.append('/')
+                returnList.add(urlBuilder.toString())
             }
-            urlBuilder.append(it)
-            if (!it.endsWith('/'))
-                urlBuilder.append('/')
-            urlBuilder.toString()
+            returnList
         }
     }
 

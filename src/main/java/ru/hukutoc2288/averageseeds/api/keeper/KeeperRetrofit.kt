@@ -6,6 +6,7 @@ import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.jackson.JacksonConverterFactory
 import ru.hukutoc2288.averageseeds.api.UserAgentInterceptor
+import ru.hukutoc2288.averageseeds.mapper
 
 
 var keeperRetrofit = createKeeperApi()
@@ -19,9 +20,7 @@ private fun createKeeperApi(): KeeperApi {
 
     return Retrofit.Builder()
         .baseUrl("https://api.rutracker.cc/")
-        .addConverterFactory(JacksonConverterFactory.create(ObjectMapper().apply {
-            configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES,false)
-        }))
+        .addConverterFactory(JacksonConverterFactory.create(mapper))
         .client(clientBuilder.build())
         .build()
         .create(KeeperApi::class.java)

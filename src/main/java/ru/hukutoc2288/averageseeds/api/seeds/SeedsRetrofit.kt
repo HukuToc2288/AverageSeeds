@@ -5,21 +5,19 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.jackson.JacksonConverterFactory
+import ru.hukutoc2288.averageseeds.mapper
 
-var seedsRetrofit = createSeedsApi()
-    private set
+object SeedsRetrofit {
+    fun forUrl(baseUrl: String): SeedsApi {
+        val clientBuilder = OkHttpClient.Builder()
+        //.addInterceptor(HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BASIC))
 
-private fun createSeedsApi(): SeedsApi {
-    val clientBuilder = OkHttpClient.Builder()
-    //.addInterceptor(HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BASIC))
+        return Retrofit.Builder()
+            .baseUrl(baseUrl)
+            .addConverterFactory(JacksonConverterFactory.create(mapper))
+            .client(clientBuilder.build())
+            .build()
+            .create(SeedsApi::class.java)
 
-    return Retrofit.Builder()
-        .baseUrl("https://localhost/")  // stub
-        .addConverterFactory(JacksonConverterFactory.create(ObjectMapper().apply {
-            configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES,false)
-        }))
-        .client(clientBuilder.build())
-        .build()
-        .create(SeedsApi::class.java)
-
+    }
 }

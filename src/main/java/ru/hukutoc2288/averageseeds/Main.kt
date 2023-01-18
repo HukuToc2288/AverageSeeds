@@ -1,15 +1,19 @@
 package ru.hukutoc2288.averageseeds
 
 import com.fasterxml.jackson.annotation.JsonInclude
+import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.fasterxml.jackson.module.kotlin.jsonMapper
 import org.springframework.boot.SpringApplication
 import retrofit2.Call
 import retrofit2.HttpException
 import ru.hukutoc2288.averageseeds.api.keeper.keeperRetrofit
-import ru.hukutoc2288.averageseeds.entities.SeedsInsertItem
+import ru.hukutoc2288.averageseeds.api.seeds.SeedsRetrofit
+import ru.hukutoc2288.averageseeds.entities.db.SeedsInsertItem
+import ru.hukutoc2288.averageseeds.entities.db.SeedsSyncItem
 import ru.hukutoc2288.averageseeds.utils.SeedsProperties
 import ru.hukutoc2288.averageseeds.utils.SeedsRepository
+import ru.hukutoc2288.averageseeds.utils.daysToCells
 import ru.hukutoc2288.averageseeds.web.SeedsSpringApplication
 import java.text.SimpleDateFormat
 import java.time.LocalDateTime
@@ -27,6 +31,7 @@ val syncTimeZone = ZoneId.of("Europe/Moscow")
 val mapper = jsonMapper {
     addModule(KotlinModule.Builder().build())
     serializationInclusion(JsonInclude.Include.NON_NULL)
+    configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
 }
 
 private var previousDay = (LocalDateTime.now(syncTimeZone).toLocalDate().toEpochDay() % daysCycle).toInt()
@@ -34,6 +39,7 @@ var dayToRead = previousDay // день, за который мы должны �
 val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale("ru"))
 
 val updateScheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
+val pendingSyncUrls = ArrayList<String>()
 
 fun updateSeeds() {
     val startTime = System.currentTimeMillis()
@@ -47,7 +53,7 @@ fun updateSeeds() {
     println("День $currentDay, предыдущий $previousDay")
     println("Получение количества раздач по разделам...")
     val forumSize = try {
-        responseOrThrow { keeperRetrofit.forumSize() }
+        persistOnResponse { keeperRetrofit.forumSize() }
     } catch (e: Exception) {
         println("Не удалось получить дерево подразделов: $e")
         return
@@ -61,8 +67,9 @@ fun updateSeeds() {
     println("Обновляются сиды в ${forumSize.size} подразделах")
     SeedsRepository.createNewSeedsTable()
     for (forum in forumSize.keys) {
+        println("Обновляем подраздел $forum")
         val forumTorrents = try {
-            responseOrThrow { keeperRetrofit.getForumTorrents(forum) }
+            persistOnResponse { keeperRetrofit.getForumTorrents(forum) }
         } catch (e: Exception) {
             println("Не удалось получить информацию о разделе $forum: $e")
             continue
@@ -80,13 +87,128 @@ fun updateSeeds() {
     if (topicsList.isNotEmpty())
         insertSeeds.invoke()
     SeedsRepository.commitNewSeeds(currentDay, currentDay != previousDay)
-    if (currentDay != previousDay){
-        // TODO: 13.01.2023 sync
+    println("Обновление всех разделов завершено за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
+
+    if (currentDay != previousDay) {
+        pendingSyncUrls.clear()
+        pendingSyncUrls.addAll(SeedsProperties.syncUrls)
+        println("Наступил новый день, синхронизируемся")
+        syncSeeds(forumSize.keys)
+    } else if (pendingSyncUrls.isNotEmpty()) {
+        println("Синхронизация не была выполнена полностью, синхронизируемся")
+        syncSeeds(forumSize.keys)
     }
     previousDay = currentDay
-    println("Обновление всех разделов завершено за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
     System.gc()
     System.runFinalization()
+}
+
+fun syncSeeds(subsections: Collection<Int>) {
+    val currentPendingSyncUrls = ArrayList<String>(pendingSyncUrls)
+    val topicsList = ArrayList<SeedsSyncItem>()
+    val updateSeeds = {
+        SeedsRepository.appendSyncSeeds(topicsList)
+        topicsList.clear()
+    }
+
+    for (url in currentPendingSyncUrls) {
+        val daysToSync = ArrayList<Int>()
+        val myUpdatesCount = SeedsRepository.getMainUpdates(dayToRead, (0..29).toList().toIntArray())
+        for (i in myUpdatesCount.indices) {
+            if (myUpdatesCount[i] != 24) {
+                daysToSync.add(i)
+            }
+        }
+        if (daysToSync.isEmpty()) {
+            println("Имеется полная информация за все дни, дальнейшая синхронизация не требуется")
+            pendingSyncUrls.clear()
+            return
+        }
+        println("Нужно синхронизировать дни ${daysToSync.joinToString(",")}")
+        // номера ячеек для таблицы, в которые записываем полученные данные
+        run urlBlock@{
+            println("Синхронизация с $url")
+            val seedsRetrofit = SeedsRetrofit.forUrl(url)
+            val remoteCurrentDay = try {
+                responseOrThrow {
+                    seedsRetrofit.getCurrentDay()
+                }
+            } catch (e: Exception) {
+                println("Не удалось синхронизироваться с $url, попробуем при следующем обновлении: $e")
+                return@urlBlock
+            }.currentDay
+            if (remoteCurrentDay != dayToRead) {
+                println("День в $url отличается от локального, попробуем при следующем обновлении")
+                return@urlBlock
+            }
+            val remoteUpdatesCount = try {
+                responseOrThrow {
+                    seedsRetrofit.getMainUpdatesCount(daysToSync.joinToString(","))
+                }
+            } catch (e: Exception) {
+                println("Не удалось синхронизироваться с $url, попробуем при следующем обновлении: $e")
+                return@urlBlock
+            }.mainUpdatesCount!!
+            val remoteBetterDays = ArrayList<Int>()
+            val updatesInDaysToSync = IntArray(daysToSync.size) {
+                myUpdatesCount[daysToSync[it]]
+            }
+            for (i in remoteUpdatesCount.indices) {
+                if (remoteUpdatesCount[i] <= 24 && remoteUpdatesCount[i] > updatesInDaysToSync[i]) {
+                    remoteBetterDays.add(daysToSync[i])
+                }
+            }
+            if (remoteBetterDays.isEmpty()) {
+                println("$url не обладает более полной информацией о нужных днях")
+                pendingSyncUrls.remove(url)
+                return@urlBlock
+            }
+            val updatesInRemoteBetterDays = IntArray(remoteBetterDays.size) {
+                remoteUpdatesCount[remoteBetterDays[it]]
+            }
+
+            val cellsToSync = remoteBetterDays.toIntArray().daysToCells(dayToRead)
+            SeedsRepository.createSyncSeedsTable(cellsToSync)
+            println("Синхронизируем дни ${remoteBetterDays.joinToString(",")} с $url")
+            for (subsection in subsections) {
+                val remoteSubsectionInfo = try {
+                    responseOrThrow {
+                        seedsRetrofit.getSingleSubsectionSeeds(subsection, remoteBetterDays.joinToString(","))
+                    }
+                } catch (e: Exception) {
+                    println("Не удалось синхронизироваться с $url, попробуем при следующем обновлении: $e")
+                    return@urlBlock
+                }.subsections?.get(subsection) ?: continue
+                for (remoteTopic in remoteSubsectionInfo) {
+                    topicsList.add(
+                        SeedsSyncItem(
+                            remoteTopic.key,
+                            remoteTopic.value.updatesCount ?: updatesInRemoteBetterDays,
+                            remoteTopic.value.totalSeeds
+                        )
+                    )
+                    if (topicsList.size == packSize) {
+                        updateSeeds.invoke()
+                    }
+                }
+            }
+            // обновляем полные обновления
+            topicsList.add(
+                SeedsSyncItem(
+                    -1,
+                    updatesInRemoteBetterDays,
+                    IntArray(remoteBetterDays.size) { 0 })
+            )
+            if (topicsList.isNotEmpty())
+                updateSeeds.invoke()
+            SeedsRepository.commitSyncSeeds(cellsToSync)
+        }
+    }
+    if (pendingSyncUrls.isEmpty()) {
+        println("Синхронизация успешно выполнена")
+    } else {
+        println("Синхронизация выполнена частично. Повторная попытка после следующего обновления")
+    }
 }
 
 fun main(args: Array<String>) {
@@ -103,6 +225,7 @@ fun main(args: Array<String>) {
         }
     }
     SeedsProperties.load()
+
     if (args.contains("now")) {
         println("Обновляем сиды прямо сейчас")
         updateSeeds()
@@ -112,6 +235,17 @@ fun main(args: Array<String>) {
             LocalDateTime.now(syncTimeZone).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
         }. Если это ошибка, настройте время и часовые пояса на компьютере!"
     )
+    if (args.contains("sync")) {
+        println("Выполняем принудительную синхронизацию")
+        pendingSyncUrls.clear()
+        pendingSyncUrls.addAll(SeedsProperties.syncUrls)
+        syncSeeds(try {
+            persistOnResponse { keeperRetrofit.forumSize() }
+        } catch (e: Exception) {
+            println("Не удалось получить дерево подразделов: $e")
+            return
+        }.result.keys)
+    }
     println("Сегодняшний день в БД — $dayToRead")
     val startTime = GregorianCalendar()
     if (startTime.get(Calendar.MINUTE) >= SeedsProperties.updateMinute) {
@@ -125,7 +259,7 @@ fun main(args: Array<String>) {
     //ru.hukutoc2288.averageseeds.updateSeeds()
 }
 
-inline fun <T> responseOrThrow(call: () -> Call<T>): T {
+inline fun <T> persistOnResponse(call: () -> Call<T>): T {
     var currentAttempt = 1
     while (true) {
         if (currentAttempt > 1) {
@@ -152,6 +286,32 @@ inline fun <T> responseOrThrow(call: () -> Call<T>): T {
             Thread.sleep((requestRetryTimeMinutes * 1000 * 60).toLong())
             println("$requestRetryTimeMinutes прошло, выполняем запрос снова...")
             currentAttempt = 1
+        }
+    }
+}
+
+inline fun <T> responseOrThrow(call: () -> Call<T>): T {
+    var currentAttempt = 1
+    while (true) {
+        if (currentAttempt > 1) {
+            println("Повторная попытка $currentAttempt/$maxRequestAttempts")
+        }
+        try {
+            val response = call.invoke().execute()
+            if (!response.isSuccessful)
+                throw HttpException(response)
+            return response.body()!!
+        } catch (e: HttpException) {
+            val codeType = e.code() / 100
+            if (codeType == 4)
+                throw e // неразрешимая ошибка типа 404
+            println(e.toString())
+        } catch (e: Exception) {
+            if (currentAttempt++ == maxRequestAttempts) {
+                println("Не удалось выполнить запрос за $maxRequestAttempts попыток, я сдаюсь")
+                throw e
+            }
+            println(e.toString())
         }
     }
 }
