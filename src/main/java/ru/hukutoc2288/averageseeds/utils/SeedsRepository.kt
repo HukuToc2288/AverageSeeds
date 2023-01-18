@@ -96,6 +96,7 @@ object SeedsRepository {
                         "u30 INT" +
                         ")"
             )
+            statement.executeBatch()
             connection.commit()
         } finally {
             statement?.close()
