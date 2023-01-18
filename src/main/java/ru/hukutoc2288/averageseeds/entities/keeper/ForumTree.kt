@@ -8,9 +8,9 @@ class ForumTree(
 ) {
     // категория (c) -> форум (f) -> подфорум (f)
     class ForumTreeResults(
-        @JsonProperty("c") val categories: HashMap<Int, String>,
-        @JsonProperty("f") val forums: HashMap<Int, String>,
-        @JsonProperty("tree") val tree: HashMap<Int, HashMap<Int, List<Int>>>
+        @JsonProperty("c") val categories: TreeMap<Int, String>,
+        @JsonProperty("f") val forums: TreeMap<Int, String>,
+        @JsonProperty("tree") val tree: TreeMap<Int, TreeMap<Int, List<Int>>>
     ) {
 
     }
