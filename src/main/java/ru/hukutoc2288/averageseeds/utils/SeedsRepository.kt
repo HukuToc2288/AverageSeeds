@@ -109,7 +109,8 @@ object SeedsRepository {
                         "u30 INT" +
                         ")"
             )
-            statement.addBatch("CREATE INDEX IF NOT EXISTS ss_index on Topics(ss)")
+            statement.addBatch("INSERT OR IGNORE INTO Topics(id,ss) VALUES (-1,1)")
+            statement.addBatch("CREATE INDEX IF NOT EXISTS ss_index ON Topics(ss)")
             statement.executeBatch()
             connection.commit()
         } finally {
