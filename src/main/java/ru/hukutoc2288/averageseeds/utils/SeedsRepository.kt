@@ -96,6 +96,7 @@ object SeedsRepository {
                         "u30 INT" +
                         ")"
             )
+            statement.addBatch("CREATE INDEX IF NOT EXISTS ss_index on Topics(ss)")
             statement.executeBatch()
             connection.commit()
         } finally {
