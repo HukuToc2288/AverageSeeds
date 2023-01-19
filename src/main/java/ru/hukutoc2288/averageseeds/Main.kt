@@ -67,7 +67,6 @@ fun updateSeeds() {
     println("Обновляются сиды в ${forumSize.size} подразделах")
     SeedsRepository.createNewSeedsTable()
     for (forum in forumSize.keys) {
-        println("Обновляем подраздел $forum")
         val forumTorrents = try {
             persistOnResponse { keeperRetrofit.getForumTorrents(forum) }
         } catch (e: Exception) {
@@ -86,6 +85,7 @@ fun updateSeeds() {
     topicsList.add(SeedsInsertItem(-1, -1, 0))
     if (topicsList.isNotEmpty())
         insertSeeds.invoke()
+    println("Запись новых данных в постоянную память")
     SeedsRepository.commitNewSeeds(currentDay, currentDay != previousDay)
     println("Обновление всех разделов завершено за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
 

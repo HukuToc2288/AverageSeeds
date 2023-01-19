@@ -185,6 +185,7 @@ object SeedsRepository {
     }
 
     fun createSyncSeedsTable(tableDaysToSync: IntArray) {
+        // TODO: 19.01.2023 WIP, make table temporary when done
         var statement: Statement? = null
         try {
             statement = connection.createStatement()
