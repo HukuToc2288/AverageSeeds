@@ -159,7 +159,8 @@ object SeedsRepository {
         var insertStatement: Statement? = null
         try {
             insertStatement = connection.createStatement()
-            insertStatement.addBatch("DELETE FROM Topics WHERE Topics.id NOT IN (SELECT TopicsNew.id FROM temp.TopicsNew)")
+            // do not delete unregistered topics, as they may be returned, and also we're losing all data, if error occurred
+            // insertStatement.addBatch("DELETE FROM Topics WHERE Topics.id NOT IN (SELECT TopicsNew.id FROM temp.TopicsNew)")
             insertStatement.addBatch(
                 "INSERT INTO Topics(id,ss,u$day,s$day) SELECT id,ss,1,se FROM temp.TopicsNew WHERE TRUE" +
                         " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, " + (
