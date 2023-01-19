@@ -18,13 +18,26 @@ object SeedsRepository {
     private val connection: Connection = DriverManager.getConnection(
         "jdbc:sqlite:files/seeds.db",
         SQLiteConfig().apply {
-            setJournalMode(SQLiteConfig.JournalMode.OFF)
+            setJournalMode(SQLiteConfig.JournalMode.WAL)
         }.toProperties()
-    )
+    ).apply {
+        autoCommit = false
+    }
+
+    private val apiConnection: Connection = DriverManager.getConnection(
+        "jdbc:sqlite:files/seeds.db",
+        SQLiteConfig().apply {
+            setJournalMode(SQLiteConfig.JournalMode.WAL)
+            setReadOnly(true)
+            setReadUncommited(true)
+        }.toProperties()
+    ).apply {
+        autoCommit = false
+
+    }
 
     init {
         Class.forName("org.sqlite.JDBC")
-        connection.autoCommit = false
         var statement: Statement? = null
         try {
             statement = connection.createStatement()
@@ -225,7 +238,7 @@ object SeedsRepository {
             val insertSyncQuery = StringBuilder()
             insertSyncQuery.append("UPDATE Topics SET ")
             for (day in tableDaysToSync) {
-                // FIXME: 17.01.2023 это явно можнет делаться проще и я чего-то не знаю
+                // FIXME: 17.01.2023 это явно может делаться проще и я чего-то не знаю
                 insertSyncQuery.append("u$day=t.u$day,s$day=t.s$day,")
             }
             insertSyncQuery.setCharAt(insertSyncQuery.length - 1, ' ')
@@ -256,7 +269,7 @@ object SeedsRepository {
             columnsToSelect.append(",u$d")
         }
         try {
-            statement = connection.createStatement()
+            statement = apiConnection.createStatement()
             resultSet = statement.executeQuery("SELECT $columnsToSelect FROM TOPICS WHERE id=-1 LIMIT 1")
             val mainUpdatesCount = IntArray(cellsToRequest.size)
             if (!resultSet.next())
@@ -290,7 +303,7 @@ object SeedsRepository {
             columnsToSelect.append(",s$d,u$d")
         }
         try {
-            statement = connection.createStatement()
+            statement = apiConnection.createStatement()
             resultSet = statement.executeQuery(
                 "SELECT $columnsToSelect FROM Topics WHERE ss IN (${subsections.joinToString(",")})" +
                         " ORDER BY ss"

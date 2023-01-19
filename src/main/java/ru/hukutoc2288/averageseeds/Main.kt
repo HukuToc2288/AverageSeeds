@@ -250,7 +250,13 @@ fun main(args: Array<String>) {
     startTime.set(Calendar.MINUTE, SeedsProperties.updateMinute)
     val delay = startTime.timeInMillis - System.currentTimeMillis()
     println("Ближайшее обновление будет выполнено через ${(delay / 1000 / 60).toInt()} минут")
-    updateScheduler.scheduleAtFixedRate({ updateSeeds() }, delay, 1000 * 60 * 60, TimeUnit.MILLISECONDS)
+    updateScheduler.scheduleAtFixedRate({
+        try {
+            updateSeeds()
+        } catch (e: Exception) {
+            println("Критическая ошибка при обновлении сидов: $e")
+        }
+    }, delay, 1000 * 60 * 60, TimeUnit.MILLISECONDS)
     //ru.hukutoc2288.averageseeds.updateSeeds()
 }
 

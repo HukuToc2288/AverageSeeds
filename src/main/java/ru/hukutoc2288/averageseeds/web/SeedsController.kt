@@ -23,15 +23,10 @@ class SeedsController {
         @RequestParam(name = "subsections", required = false) subsections: IntArray?,
         @RequestParam(name = "days", required = false) daysToRequest: IntArray?
     ): ResponseEntity<StreamingResponseBody> {
-        // подгоняем дни под кольцевой буфер
-        val startTime = System.currentTimeMillis()
         val daysToRequest = if (daysToRequest?.isEmpty() != false) (0..29).toList().toIntArray() else daysToRequest
         val mainUpdatesCount = SeedsRepository.getMainUpdates(dayToRead, daysToRequest)
-        val topicResponseItemBuilder = StringBuilder(13 + mainUpdatesCount.size * 7 + 6 + 10)
-        val mainUpdatesTime = System.currentTimeMillis()
         val topicsIterator =
             SeedsRepository.getSeedsInSubsections(dayToRead, subsections, mainUpdatesCount, daysToRequest)
-        val getSeedsTime = System.currentTimeMillis()
         val responseBody = StreamingResponseBody { responseStream ->
             try {
                 // building answer manually, as we may run OOM on potato PC
@@ -62,13 +57,6 @@ class SeedsController {
                 // write message field here if needed
                 responseStream.write("}")
                 responseStream.flush()
-                val buildResponseTime = System.currentTimeMillis()
-//            println("timings:" +
-//                    "\n\tget main updates: ${mainUpdatesTime - startTime}" +
-//                    "\n\tget seeds: ${getSeedsTime - mainUpdatesTime}" +
-//                    "\n\tbuild response: ${buildResponseTime - getSeedsTime}")
-
-
             }catch (e: Exception){
                 e.printStackTrace()
                 throw e
