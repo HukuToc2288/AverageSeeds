@@ -11,8 +11,7 @@ abstract class CachingIterator<T>(private val resultSet: ResultSet) : Iterator<T
             cachedHasNext = resultSet.next()
         if (!cachedHasNext) {
             resultSet.close()
-            for (r in resources)
-                r.close()
+            closeResources()
         }
         return cachedHasNext
     }
@@ -26,6 +25,11 @@ abstract class CachingIterator<T>(private val resultSet: ResultSet) : Iterator<T
 
     fun addResource(resource: AutoCloseable){
         resources.add(resource)
+    }
+
+    fun closeResources(){
+        for (r in resources)
+            r.close()
     }
 
     abstract fun processResult(resultSet: ResultSet): T
