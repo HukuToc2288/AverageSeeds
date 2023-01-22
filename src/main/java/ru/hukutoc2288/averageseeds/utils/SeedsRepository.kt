@@ -12,7 +12,7 @@ import java.sql.ResultSet
 import java.sql.SQLException
 import java.sql.Statement
 import java.util.Collections
-import kotlin.math.max
+import kotlin.math.min
 
 object SeedsRepository {
 
@@ -108,7 +108,7 @@ object SeedsRepository {
                 statement.setInt(2, topic.forumId)
                 // really big overhead to database if we have to use int instead of smallint on transactions
                 // and yes, disk space is really matters on potato PC
-                statement.setInt(3, max(topic.seedsCount, 1000))
+                statement.setInt(3, min(topic.seedsCount, 1000))
                 statement.addBatch()
             }
             statement.executeBatch()
@@ -196,7 +196,7 @@ object SeedsRepository {
                     statement.setInt(i * 2 + 2, topic.updatesCount[i])
                     // really big overhead to database if we have to use int instead of smallint on transactions
                     // and yes, disk space is really matters on potato PC
-                    statement.setInt(i * 2 + 3, max(topic.totalSeeds[i], 24 * 1000))
+                    statement.setInt(i * 2 + 3, min(topic.totalSeeds[i], 24 * 1000))
                 }
                 statement.addBatch()
             }
