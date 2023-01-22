@@ -1,6 +1,6 @@
 package ru.hukutoc2288.averageseeds.utils
 
-import org.sqlite.SQLiteConfig
+import ru.hukutoc2288.averageseeds.daysCycle
 import ru.hukutoc2288.averageseeds.entities.db.SeedsInsertItem
 import ru.hukutoc2288.averageseeds.entities.db.SeedsSyncItem
 import ru.hukutoc2288.averageseeds.entities.db.TopicItem
@@ -12,104 +12,63 @@ import java.sql.ResultSet
 import java.sql.SQLException
 import java.sql.Statement
 import java.util.Collections
+import kotlin.math.max
 
 object SeedsRepository {
 
+    // TODO: 22.01.2023 use pool
+
     private val connection: Connection = DriverManager.getConnection(
-        "jdbc:sqlite:files/seeds.db",
-        SQLiteConfig().apply {
-            setJournalMode(SQLiteConfig.JournalMode.WAL)
-        }.toProperties()
+        "jdbc:postgresql:${SeedsProperties.dbUrl}",
     ).apply {
         autoCommit = false
     }
 
+//    private val apiConnection: Connection = DriverManager.getConnection(
+//        "jdbc:sqlite:files/seeds.db",
+//        SQLiteConfig().apply {
+//            setJournalMode(SQLiteConfig.JournalMode.WAL)
+//            setReadOnly(true)
+//            setReadUncommited(true)
+//        }.toProperties()
+//    ).apply {
+//        autoCommit = false
+//
+//    }
+
     private val apiConnection: Connection = DriverManager.getConnection(
-        "jdbc:sqlite:files/seeds.db",
-        SQLiteConfig().apply {
-            setJournalMode(SQLiteConfig.JournalMode.WAL)
-            setReadOnly(true)
-            setReadUncommited(true)
-        }.toProperties()
+        "jdbc:postgresql:${SeedsProperties.dbUrl}",
     ).apply {
         autoCommit = false
-
+        isReadOnly = true
     }
 
     init {
-        Class.forName("org.sqlite.JDBC")
         var statement: Statement? = null
         try {
             statement = connection.createStatement()
-            statement.addBatch(
+            val createTableQueryBuilder = StringBuilder(100 + 66 * daysCycle)
+            createTableQueryBuilder.append(
                 "CREATE TABLE IF NOT EXISTS Topics (" +
                         "id INT NOT NULL PRIMARY KEY," +
-                        "ss INT NOT NULL," +
-                        "s0  INT,\n" +
-                        "s1  INT,\n" +
-                        "s2  INT,\n" +
-                        "s3  INT,\n" +
-                        "s4  INT,\n" +
-                        "s5  INT,\n" +
-                        "s6  INT,\n" +
-                        "s7  INT,\n" +
-                        "s8  INT,\n" +
-                        "s9  INT,\n" +
-                        "s10 INT,\n" +
-                        "s11 INT,\n" +
-                        "s12 INT,\n" +
-                        "s13 INT,\n" +
-                        "s14 INT,\n" +
-                        "s15 INT,\n" +
-                        "s16 INT,\n" +
-                        "s17 INT,\n" +
-                        "s18 INT,\n" +
-                        "s19 INT,\n" +
-                        "s20 INT,\n" +
-                        "s21 INT,\n" +
-                        "s22 INT,\n" +
-                        "s23 INT,\n" +
-                        "s24 INT,\n" +
-                        "s25 INT,\n" +
-                        "s26 INT,\n" +
-                        "s27 INT,\n" +
-                        "s28 INT,\n" +
-                        "s29 INT,\n" +
-                        "s30 INT,\n" +
-                        "u0  INT,\n" +
-                        "u1  INT,\n" +
-                        "u2  INT,\n" +
-                        "u3  INT,\n" +
-                        "u4  INT,\n" +
-                        "u5  INT,\n" +
-                        "u6  INT,\n" +
-                        "u7  INT,\n" +
-                        "u8  INT,\n" +
-                        "u9  INT,\n" +
-                        "u10 INT,\n" +
-                        "u11 INT,\n" +
-                        "u12 INT,\n" +
-                        "u13 INT,\n" +
-                        "u14 INT,\n" +
-                        "u15 INT,\n" +
-                        "u16 INT,\n" +
-                        "u17 INT,\n" +
-                        "u18 INT,\n" +
-                        "u19 INT,\n" +
-                        "u20 INT,\n" +
-                        "u21 INT,\n" +
-                        "u22 INT,\n" +
-                        "u23 INT,\n" +
-                        "u24 INT,\n" +
-                        "u25 INT,\n" +
-                        "u26 INT,\n" +
-                        "u27 INT,\n" +
-                        "u28 INT,\n" +
-                        "u29 INT,\n" +
-                        "u30 INT" +
-                        ")"
+                        "ss SMALLINT NOT NULL"
             )
-            statement.addBatch("INSERT OR IGNORE INTO Topics(id,ss) VALUES (-1,1)")
+            for (i in 0 until daysCycle) {
+                createTableQueryBuilder.append(",s$i SMALLINT NOT NULL DEFAULT 0")
+            }
+            for (i in 0 until daysCycle) {
+                createTableQueryBuilder.append(",u$i SMALLINT NOT NULL DEFAULT 0")
+            }
+            var st = "alter table topics "
+            for (i in 0 until daysCycle) {
+                st +=
+                    "    alter column s$i  type smallint,"
+            }
+            st = st.dropLast(1)
+            createTableQueryBuilder.append(')')
+            statement.addBatch(createTableQueryBuilder.toString())
+            statement.addBatch(st)
+            statement.addBatch("INSERT INTO Topics(id,ss) VALUES (-1,1) ON CONFLICT DO NOTHING")
             statement.addBatch("CREATE INDEX IF NOT EXISTS ss_index ON Topics(ss)")
             statement.executeBatch()
             connection.commit()
@@ -122,12 +81,12 @@ object SeedsRepository {
         var statement: Statement? = null
         try {
             statement = connection.createStatement()
-            statement.addBatch("DROP TABLE IF EXISTS temp.TopicsNew;")
+            statement.addBatch("DROP TABLE IF EXISTS TopicsNew;")
             statement.addBatch(
                 "CREATE TEMPORARY TABLE TopicsNew (" +
                         "id INT NOT NULL PRIMARY KEY," +
-                        "ss INT NOT NULL," +
-                        "se INT" +
+                        "ss SMALLINT NOT NULL," +
+                        "se SMALLINT" +
                         ")"
             )
             statement.executeBatch()
@@ -141,12 +100,15 @@ object SeedsRepository {
         var statement: PreparedStatement? = null
         try {
             statement = connection.prepareStatement(
-                "INSERT OR REPLACE INTO temp.TopicsNew(id,ss,se) VALUES (?,?,?)"
+                "INSERT INTO TopicsNew(id,ss,se) VALUES (?,?,?)" +
+                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, se=excluded.se"
             )
             for (topic in topics) {
                 statement.setInt(1, topic.topicId)
                 statement.setInt(2, topic.forumId)
-                statement.setInt(3, topic.seedsCount)
+                // really big overhead to database if we have to use int instead of smallint on transactions
+                // and yes, disk space is really matters on potato PC
+                statement.setInt(3, max(topic.seedsCount, 1000))
                 statement.addBatch()
             }
             statement.executeBatch()
@@ -161,14 +123,14 @@ object SeedsRepository {
         try {
             insertStatement = connection.createStatement()
             // do not delete unregistered topics, as they may be returned, and also we're losing all data, if error occurred
-            // insertStatement.addBatch("DELETE FROM Topics WHERE Topics.id NOT IN (SELECT TopicsNew.id FROM temp.TopicsNew)")
+            // insertStatement.addBatch("DELETE FROM Topics WHERE Topics.id NOT IN (SELECT TopicsNew.id FROM TopicsNew)")
             insertStatement.addBatch(
-                "INSERT INTO Topics(id,ss,u$day,s$day) SELECT id,ss,1,se FROM temp.TopicsNew WHERE TRUE" +
+                "INSERT INTO Topics(id,ss,u$day,s$day) SELECT id,ss,1,se FROM TopicsNew WHERE TRUE" +
                         " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, " + (
                         if (isNewDay)
                             "u$day=1, s$day=excluded.s$day" // новый день, сбрасываем сиды и обновления
                         else
-                            "u$day=u$day+1, s$day=s$day+excluded.s$day" // день ещё идёт, добавляем сиды и обновления
+                            "u$day=Topics.u$day+1, s$day=Topics.s$day+excluded.s$day" // день ещё идёт, добавляем сиды и обновления
                         )
             )
             insertStatement.executeBatch()
@@ -178,7 +140,7 @@ object SeedsRepository {
             var dropStatement: Statement? = null
             try {
                 dropStatement = connection.createStatement()
-                dropStatement.execute("DROP TABLE temp.TopicsNew")
+                dropStatement.execute("DROP TABLE TopicsNew")
                 connection.commit()
             } finally {
                 dropStatement?.close()
@@ -198,7 +160,7 @@ object SeedsRepository {
                         "id INT NOT NULL PRIMARY KEY"
             )
             for (day in tableDaysToSync) {
-                createTableQuery.append(",u$day INT,s$day INT")
+                createTableQuery.append(",u$day SMALLINT,s$day SMALLINT")
             }
             createTableQuery.append(")")
             statement.addBatch(createTableQuery.toString())
@@ -215,15 +177,26 @@ object SeedsRepository {
         val valuesCount = topics.first().updatesCount.size  // количество значений вставляемых в БД
         var statement: PreparedStatement? = null
         try {
+            // no INSERT OR REPLACE in psql (why??)
+            // FIXME: 21.01.2023 seems to be not good solution
+            connection.createStatement().execute(
+                "DELETE FROM TopicsNew WHERE id IN (${
+                    topics.joinToString(",") {
+                        it.topicId.toString()
+                    }
+                })"
+            )
             statement = connection.prepareStatement(
-                "INSERT OR REPLACE INTO TopicsNew VALUES (?${",?".repeat(valuesCount * 2)})"
+                "INSERT INTO TopicsNew VALUES (?${",?".repeat(valuesCount * 2)})"
             )
             // эта цыганская магия позволит нам вставлять значения в нужные ячейки и не таскать с собой индексы
             for (topic in topics) {
                 statement.setInt(1, topic.topicId)
                 for (i in 0 until valuesCount) {
                     statement.setInt(i * 2 + 2, topic.updatesCount[i])
-                    statement.setInt(i * 2 + 3, topic.totalSeeds[i])
+                    // really big overhead to database if we have to use int instead of smallint on transactions
+                    // and yes, disk space is really matters on potato PC
+                    statement.setInt(i * 2 + 3, max(topic.totalSeeds[i], 24 * 1000))
                 }
                 statement.addBatch()
             }
@@ -307,6 +280,7 @@ object SeedsRepository {
         }
         try {
             statement = apiConnection.createStatement()
+            statement.fetchSize = 5
             resultSet = statement.executeQuery(
                 "SELECT $columnsToSelect FROM Topics WHERE ss IN (${subsections.joinToString(",")})" +
                         " ORDER BY ss"

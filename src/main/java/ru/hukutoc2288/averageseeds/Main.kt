@@ -201,6 +201,7 @@ fun syncSeeds(subsections: Collection<Int>) {
             )
             if (topicsList.isNotEmpty())
                 updateSeeds.invoke()
+            println("Запись данных синхронизации в базу")
             SeedsRepository.commitSyncSeeds(cellsToSync)
             pendingSyncUrls.remove(url)
         }

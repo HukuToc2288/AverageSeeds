@@ -7,11 +7,13 @@ import kotlin.system.exitProcess
 
 object SeedsProperties {
 
-    val updateMinuteKey = "updateMinute"
-    val syncUrlsKey = "syncUrls"
+    private val updateMinuteKey = "updateMinute"
+    private val syncUrlsKey = "syncUrls"
+    private val dbUrlKey = "dbUrl"
 
     var updateMinute: Int = 0
     lateinit var syncUrls: List<String>
+    lateinit var dbUrl: String
 
 
     fun load() {
@@ -33,7 +35,7 @@ object SeedsProperties {
         syncUrls = run {
             val rawList = (properties[syncUrlsKey] as String).split(';')
             val returnList = ArrayList<String>()
-            for (rawUrl in rawList){
+            for (rawUrl in rawList) {
                 if (rawUrl.isEmpty())
                     continue
                 val urlBuilder = StringBuilder()
@@ -47,12 +49,14 @@ object SeedsProperties {
             }
             returnList
         }
+        dbUrl = properties[dbUrlKey] as String
     }
 
     private fun initDefaults(): Properties {
         val properties = Properties()
         properties[updateMinuteKey] = "3"
         properties[syncUrlsKey] = ""
+        properties[dbUrlKey] = "seeds"
         return properties
     }
 
