@@ -78,30 +78,36 @@ object SeedsRepository {
     }
 
     fun createNewSeedsTable() {
+        val startTime = System.currentTimeMillis()
         var statement: Statement? = null
         try {
             statement = connection.createStatement()
-            statement.addBatch("DROP TABLE IF EXISTS TopicsNew;")
-            statement.addBatch(
-                "CREATE TEMPORARY TABLE TopicsNew (" +
-                        "id INT NOT NULL PRIMARY KEY," +
-                        "ss SMALLINT NOT NULL," +
-                        "se SMALLINT" +
-                        ")"
-            )
+            statement.addBatch("DROP TABLE IF EXISTS TopicsNew")
+            statement.addBatch("CREATE TABLE TopicsNew (LIKE Topics INCLUDING ALL)")
+            statement.addBatch("INSERT INTO TopicsNew SELECT * FROM Topics")
             statement.executeBatch()
             connection.commit()
         } finally {
             statement?.close()
+
+            println("done in ${((System.currentTimeMillis() - startTime) / 1000).toInt()} seconds")
+            appendWasteTime = 0
         }
     }
 
-    fun appendNewSeeds(topics: Collection<SeedsInsertItem>) {
+    var appendWasteTime: Long = 0
+    fun appendNewSeeds(topics: Collection<SeedsInsertItem>, day: Int, isNewDay: Boolean) {
+        appendWasteTime -= System.currentTimeMillis()
         var statement: PreparedStatement? = null
         try {
             statement = connection.prepareStatement(
-                "INSERT INTO TopicsNew(id,ss,se) VALUES (?,?,?)" +
-                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, se=excluded.se"
+                "INSERT INTO TopicsNew(id,ss,u$day,s$day) VALUES (?,?,1,?)" +
+                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, " + (
+                        if (isNewDay)
+                            "u$day=1, s$day=excluded.s$day" // новый день, сбрасываем сиды и обновления
+                        else
+                            "u$day=TopicsNew.u$day+1, s$day=TopicsNew.s$day+excluded.s$day" // день ещё идёт, добавляем сиды и обновления
+                        )
             )
             for (topic in topics) {
                 statement.setInt(1, topic.topicId)
@@ -114,37 +120,25 @@ object SeedsRepository {
             statement.executeBatch()
             connection.commit()
         } finally {
+            appendWasteTime += System.currentTimeMillis()
             statement?.close()
         }
     }
 
-    fun commitNewSeeds(day: Int, isNewDay: Boolean) {
+    fun commitNewSeeds() {
+        val startTime = System.currentTimeMillis()
         var insertStatement: Statement? = null
         try {
             insertStatement = connection.createStatement()
-            // do not delete unregistered topics, as they may be returned, and also we're losing all data, if error occurred
-            // insertStatement.addBatch("DELETE FROM Topics WHERE Topics.id NOT IN (SELECT TopicsNew.id FROM TopicsNew)")
-            insertStatement.addBatch(
-                "INSERT INTO Topics(id,ss,u$day,s$day) SELECT id,ss,1,se FROM TopicsNew WHERE TRUE" +
-                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, " + (
-                        if (isNewDay)
-                            "u$day=1, s$day=excluded.s$day" // новый день, сбрасываем сиды и обновления
-                        else
-                            "u$day=Topics.u$day+1, s$day=Topics.s$day+excluded.s$day" // день ещё идёт, добавляем сиды и обновления
-                        )
-            )
+            insertStatement.execute("DROP TABLE Topics")
+            insertStatement.addBatch("ALTER TABLE TopicsNew RENAME TO Topics")
+            insertStatement.addBatch("CREATE INDEX ss_index ON Topics(ss)")
             insertStatement.executeBatch()
             connection.commit()
         } finally {
             insertStatement?.close()
-            var dropStatement: Statement? = null
-            try {
-                dropStatement = connection.createStatement()
-                dropStatement.execute("DROP TABLE TopicsNew")
-                connection.commit()
-            } finally {
-                dropStatement?.close()
-            }
+            println("done in ${((System.currentTimeMillis() - startTime) / 1000).toInt()} seconds")
+            println("append waste time is ${((appendWasteTime) / 1000).toInt()} seconds")
         }
     }
 
