@@ -21,6 +21,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.*
 import java.util.concurrent.*
+import kotlin.collections.ArrayList
 
 const val maxRequestAttempts = 3
 const val requestRetryTimeMinutes = 10
@@ -39,6 +40,14 @@ var dayToRead = previousDay // день, за который мы должны �
 val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale("ru"))
 
 val updateScheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
+val dbWorker = ThreadPoolExecutor(
+    1, 1, 0, TimeUnit.MILLISECONDS, LinkedBlockingQueue(20)
+).apply {
+    setRejectedExecutionHandler { runnable, threadPoolExecutor ->
+        threadPoolExecutor.queue.put(runnable)
+    }
+}
+
 val pendingSyncUrls = ArrayList<String>()
 
 fun updateSeeds() {
@@ -60,12 +69,17 @@ fun updateSeeds() {
     }.result
     val topicsList = ArrayList<SeedsInsertItem>()
     val insertSeeds = {
-        SeedsRepository.appendNewSeeds(topicsList)
+        dbWorker.submit {
+            SeedsRepository.appendNewSeeds(ArrayList(topicsList), currentDay, currentDay != previousDay)
+        }
         topicsList.clear()
     }
     // обновляем каждый форум
     println("Обновляются сиды в ${forumSize.size} подразделах")
-    SeedsRepository.createNewSeedsTable()
+
+    dbWorker.submit {
+        SeedsRepository.createNewSeedsTable()
+    }
     for (forum in forumSize.keys) {
         val forumTorrents = try {
             persistOnResponse { keeperRetrofit.getForumTorrents(forum) }
@@ -85,10 +99,12 @@ fun updateSeeds() {
     topicsList.add(SeedsInsertItem(-1, -1, 0))
     if (topicsList.isNotEmpty())
         insertSeeds.invoke()
-    println("Запись новых данных в постоянную память")
-    SeedsRepository.commitNewSeeds(currentDay, currentDay != previousDay)
-    println("Обновление всех разделов завершено за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
+    println("Запись новых данных в базу (будет происходить в фоне)")
 
+    dbWorker.submit {
+        SeedsRepository.commitNewSeeds()
+        println("Обновление всех разделов завершено за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
+    }
     if (currentDay != previousDay) {
         pendingSyncUrls.clear()
         pendingSyncUrls.addAll(SeedsProperties.syncUrls)
@@ -103,16 +119,21 @@ fun updateSeeds() {
     System.runFinalization()
 }
 
+// TODO: 23.01.2023 use the same algorithm as in seeds append
 fun syncSeeds(subsections: Collection<Int>) {
     val currentPendingSyncUrls = ArrayList<String>(pendingSyncUrls)
     val topicsList = ArrayList<SeedsSyncItem>()
     val updateSeeds = {
-        SeedsRepository.appendSyncSeeds(topicsList)
+        dbWorker.submit {
+            SeedsRepository.appendSyncSeeds(ArrayList(topicsList))
+        }
         topicsList.clear()
     }
 
+    val startTime = System.currentTimeMillis()
     for (url in currentPendingSyncUrls) {
         val daysToSync = ArrayList<Int>()
+        // чтение из бд, не ставить в воркер!
         val myUpdatesCount = SeedsRepository.getMainUpdates(dayToRead, (0..29).toList().toIntArray())
         for (i in myUpdatesCount.indices) {
             if (myUpdatesCount[i] != 24) {
@@ -168,7 +189,9 @@ fun syncSeeds(subsections: Collection<Int>) {
             }
 
             val cellsToSync = remoteBetterDays.toIntArray().daysToCells(dayToRead)
-            SeedsRepository.createSyncSeedsTable(cellsToSync)
+            dbWorker.submit {
+                SeedsRepository.createSyncSeedsTable(cellsToSync)
+            }
             println("Синхронизируем дни ${remoteBetterDays.joinToString(",")} с $url")
             for (subsection in subsections) {
                 val remoteSubsectionInfo = try {
@@ -201,15 +224,22 @@ fun syncSeeds(subsections: Collection<Int>) {
             )
             if (topicsList.isNotEmpty())
                 updateSeeds.invoke()
-            println("Запись данных синхронизации в базу")
-            SeedsRepository.commitSyncSeeds(cellsToSync)
+            println("Запись данных синхронизации в базу (будет происходить в фоне)")
+            dbWorker.submit {
+                SeedsRepository.commitSyncSeeds(cellsToSync)
+                println("Синхронизация с $url завершена")
+            }
             pendingSyncUrls.remove(url)
         }
     }
-    if (pendingSyncUrls.isEmpty()) {
-        println("Синхронизация успешно выполнена")
-    } else {
-        println("Синхронизация выполнена частично. Повторная попытка после следующего обновления")
+    dbWorker.submit {
+        if (pendingSyncUrls.isEmpty()) {
+            println("Синхронизация успешно выполнена")
+        } else {
+            println("Синхронизация выполнена частично. Повторная попытка после следующего обновления")
+        }
+        println("Синхронизация завершена за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
+
     }
 }
 
