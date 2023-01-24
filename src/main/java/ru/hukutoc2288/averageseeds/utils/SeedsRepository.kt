@@ -1,5 +1,6 @@
 package ru.hukutoc2288.averageseeds.utils
 
+import com.zaxxer.hikari.HikariDataSource
 import ru.hukutoc2288.averageseeds.daysCycle
 import ru.hukutoc2288.averageseeds.entities.db.SeedsInsertItem
 import ru.hukutoc2288.averageseeds.entities.db.SeedsSyncItem
@@ -12,40 +13,40 @@ import java.sql.ResultSet
 import java.sql.SQLException
 import java.sql.Statement
 import java.util.Collections
+import java.util.concurrent.TimeUnit
 import kotlin.math.min
 
 object SeedsRepository {
 
     // TODO: 22.01.2023 use pool
 
-    private val connection: Connection = DriverManager.getConnection(
-        "jdbc:postgresql:${SeedsProperties.dbUrl}",
-    ).apply {
-        autoCommit = false
+    private val updateConnectionPool = HikariDataSource().apply {
+        jdbcUrl = "jdbc:postgresql:${SeedsProperties.dbUrl}"
+        addDataSourceProperty("cachePrepStmts", "true");
+        addDataSourceProperty("prepStmtCacheSize", "250");
+        addDataSourceProperty("prepStmtCacheSqlLimit", "2048")
+        maximumPoolSize = 1
+        isAutoCommit = false
+        idleTimeout = 60_000
+
     }
 
-//    private val apiConnection: Connection = DriverManager.getConnection(
-//        "jdbc:sqlite:files/seeds.db",
-//        SQLiteConfig().apply {
-//            setJournalMode(SQLiteConfig.JournalMode.WAL)
-//            setReadOnly(true)
-//            setReadUncommited(true)
-//        }.toProperties()
-//    ).apply {
-//        autoCommit = false
-//
-//    }
-
-    private val apiConnection: Connection = DriverManager.getConnection(
-        "jdbc:postgresql:${SeedsProperties.dbUrl}",
-    ).apply {
-        autoCommit = false
+    private val apiConnectionPool = HikariDataSource().apply {
+        jdbcUrl = "jdbc:postgresql:${SeedsProperties.dbUrl}"
+        addDataSourceProperty("cachePrepStmts", "true");
+        addDataSourceProperty("prepStmtCacheSize", "250");
+        addDataSourceProperty("prepStmtCacheSqlLimit", "2048")
+        maximumPoolSize = 4
+        isAutoCommit = false
         isReadOnly = true
+        idleTimeout = 60_000
     }
 
-    init {
+    fun prepareDatabase() {
+        var connection: Connection? = null
         var statement: Statement? = null
         try {
+            connection = updateConnectionPool.connection
             statement = connection.createStatement()
             val createTableQueryBuilder = StringBuilder(100 + 66 * daysCycle)
             createTableQueryBuilder.append(
@@ -59,28 +60,24 @@ object SeedsRepository {
             for (i in 0 until daysCycle) {
                 createTableQueryBuilder.append(",u$i SMALLINT NOT NULL DEFAULT 0")
             }
-            var st = "alter table topics "
-            for (i in 0 until daysCycle) {
-                st +=
-                    "    alter column s$i  type smallint,"
-            }
-            st = st.dropLast(1)
             createTableQueryBuilder.append(')')
             statement.addBatch(createTableQueryBuilder.toString())
-            statement.addBatch(st)
             statement.addBatch("INSERT INTO Topics(id,ss) VALUES (-1,1) ON CONFLICT DO NOTHING")
             statement.addBatch("CREATE INDEX IF NOT EXISTS ss_index ON Topics(ss)")
             statement.executeBatch()
             connection.commit()
         } finally {
             statement?.close()
+            connection?.close()
         }
     }
 
     fun createNewSeedsTable() {
         val startTime = System.currentTimeMillis()
+        var connection: Connection? = null
         var statement: Statement? = null
         try {
+            connection = updateConnectionPool.connection
             statement = connection.createStatement()
             statement.addBatch("DROP TABLE IF EXISTS TopicsNew")
             statement.addBatch("CREATE TABLE TopicsNew (LIKE Topics INCLUDING ALL)")
@@ -89,6 +86,7 @@ object SeedsRepository {
             connection.commit()
         } finally {
             statement?.close()
+            connection?.close()
 
             println("done in ${((System.currentTimeMillis() - startTime) / 1000).toInt()} seconds")
             appendWasteTime = 0
@@ -98,8 +96,11 @@ object SeedsRepository {
     var appendWasteTime: Long = 0
     fun appendNewSeeds(topics: Collection<SeedsInsertItem>, day: Int, isNewDay: Boolean) {
         appendWasteTime -= System.currentTimeMillis()
+
+        var connection: Connection? = null
         var statement: PreparedStatement? = null
         try {
+            connection = updateConnectionPool.connection
             statement = connection.prepareStatement(
                 "INSERT INTO TopicsNew(id,ss,u$day,s$day) VALUES (?,?,1,?)" +
                         " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, " + (
@@ -122,13 +123,16 @@ object SeedsRepository {
         } finally {
             appendWasteTime += System.currentTimeMillis()
             statement?.close()
+            connection?.close()
         }
     }
 
     fun commitNewSeeds() {
         val startTime = System.currentTimeMillis()
+        var connection: Connection? = null
         var insertStatement: Statement? = null
         try {
+            connection = updateConnectionPool.connection
             insertStatement = connection.createStatement()
             insertStatement.execute("DROP TABLE Topics")
             insertStatement.addBatch("ALTER TABLE TopicsNew RENAME TO Topics")
@@ -137,15 +141,17 @@ object SeedsRepository {
             connection.commit()
         } finally {
             insertStatement?.close()
+            connection?.close()
             println("done in ${((System.currentTimeMillis() - startTime) / 1000).toInt()} seconds")
             println("append waste time is ${((appendWasteTime) / 1000).toInt()} seconds")
         }
     }
 
     fun createSyncSeedsTable(tableDaysToSync: IntArray) {
-        // TODO: 19.01.2023 WIP, make table temporary when done
+        var connection: Connection? = null
         var statement: Statement? = null
         try {
+            connection = updateConnectionPool.connection
             statement = connection.createStatement()
             statement.addBatch("DROP TABLE IF EXISTS TopicsNew")
             val createTableQuery = StringBuilder()
@@ -162,6 +168,7 @@ object SeedsRepository {
             connection.commit()
         } finally {
             statement?.close()
+            connection?.close()
         }
     }
 
@@ -169,8 +176,10 @@ object SeedsRepository {
         if (topics.isEmpty())
             return
         val valuesCount = topics.first().updatesCount.size  // количество значений вставляемых в БД
-        var statement: PreparedStatement? = null
+        var connection: Connection? = null
+        var statement: Statement? = null
         try {
+            connection = updateConnectionPool.connection
             // no INSERT OR REPLACE in psql (why??)
             // FIXME: 21.01.2023 seems to be not good solution
             connection.createStatement().execute(
@@ -198,12 +207,15 @@ object SeedsRepository {
             connection.commit()
         } finally {
             statement?.close()
+            connection?.close()
         }
     }
 
     fun commitSyncSeeds(tableDaysToSync: IntArray) {
+        var connection: Connection? = null
         var insertStatement: Statement? = null
         try {
+            connection = updateConnectionPool.connection
             insertStatement = connection.createStatement()
             val insertSyncQuery = StringBuilder()
             insertSyncQuery.append("UPDATE Topics SET ")
@@ -218,18 +230,24 @@ object SeedsRepository {
             connection.commit()
         } finally {
             insertStatement?.close()
+            connection?.close()
             var dropStatement: Statement? = null
             try {
+                connection = updateConnectionPool.connection
                 dropStatement = connection.createStatement()
                 dropStatement.execute("DROP TABLE TopicsNew")
-                connection.commit()
+                connection?.commit()
+            } catch (e: Exception) {
+                throw e
             } finally {
                 dropStatement?.close()
+                connection?.close()
             }
         }
     }
 
     fun getMainUpdates(currentDay: Int, daysToRequest: IntArray): IntArray {
+        var connection: Connection? = null
         var statement: Statement? = null
         var resultSet: ResultSet? = null
         val columnsToSelect = StringBuilder()
@@ -239,7 +257,8 @@ object SeedsRepository {
             columnsToSelect.append(",u$d")
         }
         try {
-            statement = apiConnection.createStatement()
+            connection = apiConnectionPool.connection
+            statement = connection.createStatement()
             resultSet = statement.executeQuery("SELECT $columnsToSelect FROM TOPICS WHERE id=-1 LIMIT 1")
             val mainUpdatesCount = IntArray(cellsToRequest.size)
             if (!resultSet.next())
@@ -251,6 +270,7 @@ object SeedsRepository {
         } finally {
             resultSet?.close()
             statement?.close()
+            connection?.close()
         }
     }
 
@@ -264,6 +284,7 @@ object SeedsRepository {
             return Collections.emptyIterator()
 //        if (mainUpdatesCount.size != 30)
 //            throw IllegalArgumentException("mainUpdatesCount size must be 30")
+        val connection = apiConnectionPool.connection
         var statement: Statement? = null
         var resultSet: ResultSet? = null
         val columnsToSelect = StringBuilder()
@@ -273,7 +294,7 @@ object SeedsRepository {
             columnsToSelect.append(",s$d,u$d")
         }
         try {
-            statement = apiConnection.createStatement()
+            statement = connection.createStatement()
             statement.fetchSize = 5
             resultSet = statement.executeQuery(
                 "SELECT $columnsToSelect FROM Topics WHERE ss IN (${subsections.joinToString(",")})" +
@@ -301,8 +322,9 @@ object SeedsRepository {
                 }
             }.apply {
                 addResource(statement)
+                addResource(connection)
             }
-        } finally {
+        }  finally {
         }
     }
 }

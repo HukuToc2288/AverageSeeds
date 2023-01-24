@@ -50,6 +50,15 @@ val dbWorker = ThreadPoolExecutor(
 
 val pendingSyncUrls = ArrayList<String>()
 
+@Volatile
+var dbWorkerException: Exception? = null
+
+@Volatile
+var updateTopicsList = ArrayList<SeedsInsertItem>()
+
+@Volatile
+var syncTopicsList = ArrayList<SeedsSyncItem>()
+
 fun updateSeeds() {
     val startTime = System.currentTimeMillis()
     println(sdf.format(Date()))
@@ -67,17 +76,20 @@ fun updateSeeds() {
         println("Не удалось получить дерево подразделов: $e")
         return
     }.result
-    val topicsList = ArrayList<SeedsInsertItem>()
     val insertSeeds = {
-        dbWorker.submit {
-            SeedsRepository.appendNewSeeds(ArrayList(topicsList), currentDay, currentDay != previousDay)
+        val listToProcess = updateTopicsList
+        tryOnDbWorker {
+            SeedsRepository.appendNewSeeds(listToProcess, currentDay, currentDay != previousDay)
         }
-        topicsList.clear()
+        updateTopicsList = ArrayList()
     }
-    // обновляем каждый форум
+// обновляем каждый форум
     println("Обновляются сиды в ${forumSize.size} подразделах")
 
-    dbWorker.submit {
+    tryOnDbWorker {
+        SeedsRepository.prepareDatabase()
+    }
+    tryOnDbWorker {
         SeedsRepository.createNewSeedsTable()
     }
     for (forum in forumSize.keys) {
@@ -89,19 +101,19 @@ fun updateSeeds() {
         }
         for (torrent in forumTorrents.result) {
             val seedersCount = torrent.value.getOrNull(1) as Int? ?: continue
-            topicsList.add(SeedsInsertItem(forum, torrent.key, seedersCount))
-            if (topicsList.size == packSize) {
+            updateTopicsList.add(SeedsInsertItem(forum, torrent.key, seedersCount))
+            if (updateTopicsList.size == packSize) {
                 insertSeeds.invoke()
             }
         }
     }
     // virtual topic to count main updates
-    topicsList.add(SeedsInsertItem(-1, -1, 0))
-    if (topicsList.isNotEmpty())
+    updateTopicsList.add(SeedsInsertItem(-1, -1, 0))
+    if (updateTopicsList.isNotEmpty())
         insertSeeds.invoke()
     println("Запись новых данных в базу (будет происходить в фоне)")
 
-    dbWorker.submit {
+    tryOnDbWorker {
         SeedsRepository.commitNewSeeds()
         println("Обновление всех разделов завершено за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
     }
@@ -122,12 +134,12 @@ fun updateSeeds() {
 // TODO: 23.01.2023 use the same algorithm as in seeds append
 fun syncSeeds(subsections: Collection<Int>) {
     val currentPendingSyncUrls = ArrayList<String>(pendingSyncUrls)
-    val topicsList = ArrayList<SeedsSyncItem>()
     val updateSeeds = {
-        dbWorker.submit {
-            SeedsRepository.appendSyncSeeds(ArrayList(topicsList))
+        val listToProcess = syncTopicsList
+        tryOnDbWorker {
+            SeedsRepository.appendSyncSeeds(listToProcess)
         }
-        topicsList.clear()
+        syncTopicsList = ArrayList()
     }
 
     val startTime = System.currentTimeMillis()
@@ -189,7 +201,7 @@ fun syncSeeds(subsections: Collection<Int>) {
             }
 
             val cellsToSync = remoteBetterDays.toIntArray().daysToCells(dayToRead)
-            dbWorker.submit {
+            tryOnDbWorker {
                 SeedsRepository.createSyncSeedsTable(cellsToSync)
             }
             println("Синхронизируем дни ${remoteBetterDays.joinToString(",")} с $url")
@@ -203,43 +215,42 @@ fun syncSeeds(subsections: Collection<Int>) {
                     return@urlBlock
                 }.subsections?.get(subsection) ?: continue
                 for (remoteTopic in remoteSubsectionInfo) {
-                    topicsList.add(
+                    syncTopicsList.add(
                         SeedsSyncItem(
                             remoteTopic.key,
                             remoteTopic.value.updatesCount ?: updatesInRemoteBetterDays,
                             remoteTopic.value.totalSeeds
                         )
                     )
-                    if (topicsList.size == packSize) {
+                    if (syncTopicsList.size == packSize) {
                         updateSeeds.invoke()
                     }
                 }
             }
             // обновляем полные обновления
-            topicsList.add(
+            syncTopicsList.add(
                 SeedsSyncItem(
                     -1,
                     updatesInRemoteBetterDays,
                     IntArray(remoteBetterDays.size) { 0 })
             )
-            if (topicsList.isNotEmpty())
+            if (syncTopicsList.isNotEmpty())
                 updateSeeds.invoke()
             println("Запись данных синхронизации в базу (будет происходить в фоне)")
-            dbWorker.submit {
+            tryOnDbWorker {
                 SeedsRepository.commitSyncSeeds(cellsToSync)
                 println("Синхронизация с $url завершена")
             }
             pendingSyncUrls.remove(url)
         }
     }
-    dbWorker.submit {
+    tryOnDbWorker {
         if (pendingSyncUrls.isEmpty()) {
             println("Синхронизация успешно выполнена")
         } else {
             println("Синхронизация выполнена частично. Повторная попытка после следующего обновления")
         }
         println("Синхронизация завершена за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
-
     }
 }
 
@@ -285,10 +296,26 @@ fun main(args: Array<String>) {
         try {
             updateSeeds()
         } catch (e: Exception) {
-            println("Критическая ошибка при обновлении сидов: $e")
+            System.err.println("Критическая ошибка при обновлении сидов: $e")
+            e.printStackTrace()
         }
     }, delay, 1000 * 60 * 60, TimeUnit.MILLISECONDS)
     //ru.hukutoc2288.averageseeds.updateSeeds()
+}
+
+// exception is slow-blow - it will be thrown only after next call of this function
+fun tryOnDbWorker(task: () -> Any) {
+    if (dbWorkerException != null)
+        throw dbWorkerException!!
+    dbWorker.submit {
+        try {
+            task()
+        } catch (e: Exception) {
+            dbWorker.queue.drainTo(ArrayList())
+            if (dbWorkerException == null)
+                dbWorkerException = e
+        }
+    }
 }
 
 inline fun <T> persistOnResponse(call: () -> Call<T>): T {
