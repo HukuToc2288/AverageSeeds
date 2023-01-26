@@ -7,13 +7,11 @@ import ru.hukutoc2288.averageseeds.entities.db.SeedsSyncItem
 import ru.hukutoc2288.averageseeds.entities.db.TopicItem
 import ru.hukutoc2288.averageseeds.entities.seeds.TopicResponseItem
 import java.sql.Connection
-import java.sql.DriverManager
 import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.SQLException
 import java.sql.Statement
 import java.util.Collections
-import java.util.concurrent.TimeUnit
 import kotlin.math.min
 
 object SeedsRepository {
@@ -80,35 +78,34 @@ object SeedsRepository {
             connection = updateConnectionPool.connection
             statement = connection.createStatement()
             statement.addBatch("DROP TABLE IF EXISTS TopicsNew")
-            statement.addBatch("CREATE TABLE TopicsNew (LIKE Topics INCLUDING ALL)")
-            statement.addBatch("INSERT INTO TopicsNew SELECT * FROM Topics")
+            statement.addBatch(
+                "CREATE TABLE TopicsNew (" +
+                        "id INT NOT NULL PRIMARY KEY," +
+                        "ss SMALLINT NOT NULL," +
+                        "se SMALLINT" +
+                        ")"
+            )
             statement.executeBatch()
             connection.commit()
         } finally {
             statement?.close()
             connection?.close()
 
-            println("done in ${((System.currentTimeMillis() - startTime) / 1000).toInt()} seconds")
+            println("create temp table done in ${((System.currentTimeMillis() - startTime) / 1000).toInt()} seconds")
             appendWasteTime = 0
         }
     }
 
     var appendWasteTime: Long = 0
-    fun appendNewSeeds(topics: Collection<SeedsInsertItem>, day: Int, isNewDay: Boolean) {
+    fun appendNewSeeds(topics: Collection<SeedsInsertItem>) {
         appendWasteTime -= System.currentTimeMillis()
-
         var connection: Connection? = null
         var statement: PreparedStatement? = null
         try {
             connection = updateConnectionPool.connection
             statement = connection.prepareStatement(
-                "INSERT INTO TopicsNew(id,ss,u$day,s$day) VALUES (?,?,1,?)" +
-                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, " + (
-                        if (isNewDay)
-                            "u$day=1, s$day=excluded.s$day" // новый день, сбрасываем сиды и обновления
-                        else
-                            "u$day=TopicsNew.u$day+1, s$day=TopicsNew.s$day+excluded.s$day" // день ещё идёт, добавляем сиды и обновления
-                        )
+                "INSERT INTO TopicsNew(id,ss,se) VALUES (?,?,?)" +
+                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, se=excluded.se"
             )
             for (topic in topics) {
                 statement.setInt(1, topic.topicId)
@@ -121,29 +118,47 @@ object SeedsRepository {
             statement.executeBatch()
             connection.commit()
         } finally {
-            appendWasteTime += System.currentTimeMillis()
             statement?.close()
             connection?.close()
+            appendWasteTime += System.currentTimeMillis()
         }
     }
 
-    fun commitNewSeeds() {
+    fun commitNewSeeds(day: Int, isNewDay: Boolean) {
         val startTime = System.currentTimeMillis()
         var connection: Connection? = null
         var insertStatement: Statement? = null
         try {
             connection = updateConnectionPool.connection
             insertStatement = connection.createStatement()
-            insertStatement.execute("DROP TABLE Topics")
-            insertStatement.addBatch("ALTER TABLE TopicsNew RENAME TO Topics")
-            insertStatement.addBatch("CREATE INDEX ss_index ON Topics(ss)")
+            // do not delete unregistered topics, as they may be returned, and also we're losing all data, if error occurred
+            // insertStatement.addBatch("DELETE FROM Topics WHERE Topics.id NOT IN (SELECT TopicsNew.id FROM TopicsNew)")
+            insertStatement.addBatch(
+                "INSERT INTO Topics(id,ss,u$day,s$day) SELECT id,ss,1,se FROM TopicsNew WHERE TRUE" +
+                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, " + (
+                        if (isNewDay)
+                            "u$day=1, s$day=excluded.s$day" // новый день, сбрасываем сиды и обновления
+                        else
+                            "u$day=Topics.u$day+1, s$day=Topics.s$day+excluded.s$day" // день ещё идёт, добавляем сиды и обновления
+                        )
+            )
             insertStatement.executeBatch()
             connection.commit()
         } finally {
             insertStatement?.close()
             connection?.close()
-            println("done in ${((System.currentTimeMillis() - startTime) / 1000).toInt()} seconds")
-            println("append waste time is ${((appendWasteTime) / 1000).toInt()} seconds")
+            var dropStatement: Statement? = null
+            try {
+                connection = updateConnectionPool.connection
+                dropStatement = connection.createStatement()
+                dropStatement.execute("DROP TABLE TopicsNew")
+                connection.commit()
+            } finally {
+                dropStatement?.close()
+                connection?.close()
+                println("done in ${((System.currentTimeMillis() - startTime) / 1000).toInt()} seconds")
+                println("append waste time is ${((appendWasteTime) / 1000).toInt()} seconds")
+            }
         }
     }
 
@@ -156,8 +171,7 @@ object SeedsRepository {
             statement.addBatch("DROP TABLE IF EXISTS TopicsNew")
             val createTableQuery = StringBuilder()
             createTableQuery.append(
-                "CREATE TABLE TopicsNew (" +
-                        "id INT NOT NULL PRIMARY KEY"
+                "CREATE TABLE TopicsNew (id INT NOT NULL PRIMARY KEY"
             )
             for (day in tableDaysToSync) {
                 createTableQuery.append(",u$day SMALLINT,s$day SMALLINT")
@@ -236,9 +250,7 @@ object SeedsRepository {
                 connection = updateConnectionPool.connection
                 dropStatement = connection.createStatement()
                 dropStatement.execute("DROP TABLE TopicsNew")
-                connection?.commit()
-            } catch (e: Exception) {
-                throw e
+                connection.commit()
             } finally {
                 dropStatement?.close()
                 connection?.close()
@@ -324,7 +336,7 @@ object SeedsRepository {
                 addResource(statement)
                 addResource(connection)
             }
-        }  finally {
+        } finally {
         }
     }
 }

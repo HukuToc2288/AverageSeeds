@@ -79,7 +79,7 @@ fun updateSeeds() {
     val insertSeeds = {
         val listToProcess = updateTopicsList
         tryOnDbWorker {
-            SeedsRepository.appendNewSeeds(listToProcess, currentDay, currentDay != previousDay)
+            SeedsRepository.appendNewSeeds(listToProcess)
         }
         updateTopicsList = ArrayList()
     }
@@ -114,9 +114,10 @@ fun updateSeeds() {
     println("Запись новых данных в базу (будет происходить в фоне)")
 
     tryOnDbWorker {
-        SeedsRepository.commitNewSeeds()
+        SeedsRepository.commitNewSeeds(currentDay, currentDay != previousDay)
         println("Обновление всех разделов завершено за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
     }
+
     if (currentDay != previousDay) {
         pendingSyncUrls.clear()
         pendingSyncUrls.addAll(SeedsProperties.syncUrls)
@@ -126,6 +127,7 @@ fun updateSeeds() {
         println("Синхронизация не была выполнена полностью, синхронизируемся")
         syncSeeds(forumSize.keys)
     }
+
     previousDay = currentDay
     System.gc()
     System.runFinalization()
@@ -182,15 +184,16 @@ fun syncSeeds(subsections: Collection<Int>) {
                 println("Не удалось синхронизироваться с $url, попробуем при следующем обновлении: $e")
                 return@urlBlock
             }.mainUpdatesCount!!
-            val remoteBetterDays = ArrayList<Int>()
             val updatesInDaysToSync = IntArray(daysToSync.size) {
                 myUpdatesCount[daysToSync[it]]
             }
-            for (i in remoteUpdatesCount.indices) {
-                if (remoteUpdatesCount[i] <= 24 && remoteUpdatesCount[i] > updatesInDaysToSync[i]) {
-                    remoteBetterDays.add(daysToSync[i])
+            val remoteBetterDays = ArrayList<Int>().apply {
+                for (i in remoteUpdatesCount.indices) {
+                    if (remoteUpdatesCount[i] <= 24 && remoteUpdatesCount[i] > updatesInDaysToSync[i]) {
+                        add(daysToSync[i])
+                    }
                 }
-            }
+            }.toIntArray()
             if (remoteBetterDays.isEmpty()) {
                 println("$url не обладает более полной информацией о нужных днях")
                 pendingSyncUrls.remove(url)
@@ -200,7 +203,7 @@ fun syncSeeds(subsections: Collection<Int>) {
                 remoteUpdatesCount[daysToSync.indexOf(remoteBetterDays[it])]
             }
 
-            val cellsToSync = remoteBetterDays.toIntArray().daysToCells(dayToRead)
+            val cellsToSync = remoteBetterDays.daysToCells(dayToRead)
             tryOnDbWorker {
                 SeedsRepository.createSyncSeedsTable(cellsToSync)
             }
@@ -343,7 +346,7 @@ inline fun <T> persistOnResponse(call: () -> Call<T>): T {
                         " повторная попытка через $requestRetryTimeMinutes минут"
             )
             Thread.sleep((requestRetryTimeMinutes * 1000 * 60).toLong())
-            println("$requestRetryTimeMinutes прошло, выполняем запрос снова...")
+            println("$requestRetryTimeMinutes минут прошло, выполняем запрос снова...")
             currentAttempt = 1
         }
     }
