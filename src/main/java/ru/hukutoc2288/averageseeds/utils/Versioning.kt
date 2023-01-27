@@ -4,7 +4,7 @@ object Versioning {
     const val majorVersion = 0
     const val minorVersion = 4
     const val patchVersion = 5
-    const val versionTag = "psql"
+    const val versionTag = ""
 
     val version = "$majorVersion.$minorVersion.$patchVersion" + if (versionTag.isEmpty()) "" else "-$versionTag"
 }
