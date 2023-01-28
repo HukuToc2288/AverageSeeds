@@ -84,15 +84,15 @@ object SeedsRepository {
                 var valuesToSelect = "id,ss"
                 for (day in 0 until daysCycle) {
                     valuesToSelect += if (day == currentDay)
-                        "0"
+                        ",0"
                     else
-                        "s$day"
+                        ",s$day"
                 }
                 for (day in 0 until daysCycle) {
                     valuesToSelect += if (day == currentDay)
-                        "0"
+                        ",0"
                     else
-                        "u$day"
+                        ",u$day"
                 }
                 valuesToSelect
             } else {
