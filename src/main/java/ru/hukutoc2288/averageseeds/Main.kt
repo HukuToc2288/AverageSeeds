@@ -13,7 +13,6 @@ import ru.hukutoc2288.averageseeds.entities.db.SeedsInsertItem
 import ru.hukutoc2288.averageseeds.entities.db.SeedsSyncItem
 import ru.hukutoc2288.averageseeds.utils.SeedsProperties
 import ru.hukutoc2288.averageseeds.utils.SeedsRepository
-import ru.hukutoc2288.averageseeds.utils.daysToCells
 import ru.hukutoc2288.averageseeds.web.SeedsSpringApplication
 import java.text.SimpleDateFormat
 import java.time.LocalDateTime
@@ -79,7 +78,7 @@ fun updateSeeds() {
     val insertSeeds = {
         val listToProcess = updateTopicsList
         tryOnDbWorker {
-            SeedsRepository.appendNewSeeds(listToProcess)
+            SeedsRepository.appendNewSeeds(listToProcess,currentDay)
         }
         updateTopicsList = ArrayList()
     }
@@ -90,7 +89,7 @@ fun updateSeeds() {
         SeedsRepository.prepareDatabase()
     }
     tryOnDbWorker {
-        SeedsRepository.createNewSeedsTable()
+        SeedsRepository.createNewSeedsTable(currentDay, currentDay != previousDay)
     }
     for (forum in forumSize.keys) {
         val forumTorrents = try {
@@ -111,12 +110,6 @@ fun updateSeeds() {
     updateTopicsList.add(SeedsInsertItem(-1, -1, 0))
     if (updateTopicsList.isNotEmpty())
         insertSeeds.invoke()
-    println("Запись новых данных в базу (будет происходить в фоне)")
-
-    tryOnDbWorker {
-        SeedsRepository.commitNewSeeds(currentDay, currentDay != previousDay)
-        println("Обновление всех разделов завершено за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
-    }
 
     if (currentDay != previousDay) {
         pendingSyncUrls.clear()
@@ -128,6 +121,12 @@ fun updateSeeds() {
         syncSeeds(forumSize.keys)
     }
 
+    println("Запись новых данных в базу (будет происходить в фоне)")
+    tryOnDbWorker {
+        SeedsRepository.commitNewSeeds()
+        println("Обновление всех разделов завершено за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
+    }
+
     previousDay = currentDay
     System.gc()
     System.runFinalization()
@@ -136,13 +135,6 @@ fun updateSeeds() {
 // TODO: 23.01.2023 use the same algorithm as in seeds append
 fun syncSeeds(subsections: Collection<Int>) {
     val currentPendingSyncUrls = ArrayList<String>(pendingSyncUrls)
-    val updateSeeds = {
-        val listToProcess = syncTopicsList
-        tryOnDbWorker {
-            SeedsRepository.appendSyncSeeds(listToProcess)
-        }
-        syncTopicsList = ArrayList()
-    }
 
     val startTime = System.currentTimeMillis()
     for (url in currentPendingSyncUrls) {
@@ -199,14 +191,17 @@ fun syncSeeds(subsections: Collection<Int>) {
                 pendingSyncUrls.remove(url)
                 return@urlBlock
             }
+            val updateSeeds = {
+                val listToProcess = syncTopicsList
+                tryOnDbWorker {
+                    SeedsRepository.appendSyncSeeds(listToProcess, dayToRead, remoteBetterDays)
+                }
+                syncTopicsList = ArrayList()
+            }
             val updatesInRemoteBetterDays = IntArray(remoteBetterDays.size) {
                 remoteUpdatesCount[daysToSync.indexOf(remoteBetterDays[it])]
             }
 
-            val cellsToSync = remoteBetterDays.daysToCells(dayToRead)
-            tryOnDbWorker {
-                SeedsRepository.createSyncSeedsTable(cellsToSync)
-            }
             println("Синхронизируем дни ${remoteBetterDays.joinToString(",")} с $url")
             for (subsection in subsections) {
                 val remoteSubsectionInfo = try {
@@ -239,9 +234,7 @@ fun syncSeeds(subsections: Collection<Int>) {
             )
             if (syncTopicsList.isNotEmpty())
                 updateSeeds.invoke()
-            println("Запись данных синхронизации в базу (будет происходить в фоне)")
             tryOnDbWorker {
-                SeedsRepository.commitSyncSeeds(cellsToSync)
                 println("Синхронизация с $url завершена")
             }
             pendingSyncUrls.remove(url)

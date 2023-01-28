@@ -16,8 +16,6 @@ import kotlin.math.min
 
 object SeedsRepository {
 
-    // TODO: 22.01.2023 use pool
-
     private val updateConnectionPool = HikariDataSource().apply {
         jdbcUrl = "jdbc:postgresql:${SeedsProperties.dbUrl}"
         addDataSourceProperty("cachePrepStmts", "true");
@@ -70,7 +68,7 @@ object SeedsRepository {
         }
     }
 
-    fun createNewSeedsTable() {
+    fun createNewSeedsTable(currentDay: Int, isNewDay: Boolean) {
         val startTime = System.currentTimeMillis()
         var connection: Connection? = null
         var statement: Statement? = null
@@ -79,33 +77,57 @@ object SeedsRepository {
             statement = connection.createStatement()
             statement.addBatch("DROP TABLE IF EXISTS TopicsNew")
             statement.addBatch(
-                "CREATE TABLE TopicsNew (" +
-                        "id INT NOT NULL PRIMARY KEY," +
-                        "ss SMALLINT NOT NULL," +
-                        "se SMALLINT" +
-                        ")"
+                "CREATE TABLE TopicsNew (LIKE Topics INCLUDING CONSTRAINTS INCLUDING DEFAULTS)"
             )
+            val insertSelectQuery = if (isNewDay) {
+                // zeroify current day on fly
+                var valuesToSelect = "id,ss"
+                for (day in 0 until daysCycle) {
+                    valuesToSelect += if (day == currentDay)
+                        "0"
+                    else
+                        "s$day"
+                }
+                for (day in 0 until daysCycle) {
+                    valuesToSelect += if (day == currentDay)
+                        "0"
+                    else
+                        "u$day"
+                }
+                valuesToSelect
+            } else {
+                // just copy all values
+                "*"
+            }
+            // copy all values into new table
+            statement.addBatch("INSERT INTO TopicsNew SELECT $insertSelectQuery FROM Topics")
+            // build primary key on new data
+            statement.addBatch("ALTER TABLE TopicsNew ADD PRIMARY KEY (id)")
+
             statement.executeBatch()
             connection.commit()
         } finally {
             statement?.close()
             connection?.close()
 
-            println("create temp table done in ${((System.currentTimeMillis() - startTime) / 1000).toInt()} seconds")
+            println("create new table done in ${((System.currentTimeMillis() - startTime) / 1000).toInt()} seconds")
             appendWasteTime = 0
         }
     }
 
     var appendWasteTime: Long = 0
-    fun appendNewSeeds(topics: Collection<SeedsInsertItem>) {
+    fun appendNewSeeds(topics: Collection<SeedsInsertItem>, currentDay: Int) {
         appendWasteTime -= System.currentTimeMillis()
         var connection: Connection? = null
         var statement: PreparedStatement? = null
         try {
             connection = updateConnectionPool.connection
             statement = connection.prepareStatement(
-                "INSERT INTO TopicsNew(id,ss,se) VALUES (?,?,?)" +
-                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, se=excluded.se"
+                "INSERT INTO TopicsNew(id,ss,s$currentDay,u$currentDay) VALUES (?,?,?,1)" +
+                        " ON CONFLICT(id) DO UPDATE SET " +
+                        "ss=excluded.ss," +
+                        "s$currentDay=TopicsNew.s$currentDay+excluded.s$currentDay," +
+                        "u$currentDay=TopicsNew.u$currentDay+excluded.u$currentDay"
             )
             for (topic in topics) {
                 statement.setInt(1, topic.topicId)
@@ -124,41 +146,28 @@ object SeedsRepository {
         }
     }
 
-    fun commitNewSeeds(day: Int, isNewDay: Boolean) {
+    fun commitNewSeeds() {
         val startTime = System.currentTimeMillis()
         var connection: Connection? = null
-        var insertStatement: Statement? = null
+        var statement: Statement? = null
         try {
             connection = updateConnectionPool.connection
-            insertStatement = connection.createStatement()
-            // do not delete unregistered topics, as they may be returned, and also we're losing all data, if error occurred
-            // insertStatement.addBatch("DELETE FROM Topics WHERE Topics.id NOT IN (SELECT TopicsNew.id FROM TopicsNew)")
-            insertStatement.addBatch(
-                "INSERT INTO Topics(id,ss,u$day,s$day) SELECT id,ss,1,se FROM TopicsNew WHERE TRUE" +
-                        " ON CONFLICT(id) DO UPDATE SET ss=excluded.ss, " + (
-                        if (isNewDay)
-                            "u$day=1, s$day=excluded.s$day" // новый день, сбрасываем сиды и обновления
-                        else
-                            "u$day=Topics.u$day+1, s$day=Topics.s$day+excluded.s$day" // день ещё идёт, добавляем сиды и обновления
-                        )
-            )
-            insertStatement.executeBatch()
+            statement = connection.createStatement()
+            // drop old topics
+            statement.addBatch("DROP TABLE Topics")
+            // set new topics as current topics
+            statement.addBatch("ALTER TABLE TopicsNew RENAME TO Topics")
+            // create ss index
+            statement.addBatch("CREATE INDEX IF NOT EXISTS ss_index ON Topics(ss)")
+            // rename primary key matching table name
+            statement.addBatch("ALTER TABLE Topics RENAME CONSTRAINT topicsnew_pkey TO topics_pkey")
+            statement.executeBatch()
             connection.commit()
         } finally {
-            insertStatement?.close()
+            statement?.close()
             connection?.close()
-            var dropStatement: Statement? = null
-            try {
-                connection = updateConnectionPool.connection
-                dropStatement = connection.createStatement()
-                dropStatement.execute("DROP TABLE TopicsNew")
-                connection.commit()
-            } finally {
-                dropStatement?.close()
-                connection?.close()
-                println("done in ${((System.currentTimeMillis() - startTime) / 1000).toInt()} seconds")
-                println("append waste time is ${((appendWasteTime) / 1000).toInt()} seconds")
-            }
+            println("done in ${((System.currentTimeMillis() - startTime) / 1000).toInt()} seconds")
+            println("append waste time is ${((appendWasteTime) / 1000).toInt()} seconds")
         }
     }
 
@@ -186,7 +195,7 @@ object SeedsRepository {
         }
     }
 
-    fun appendSyncSeeds(topics: Collection<SeedsSyncItem>) {
+    fun appendSyncSeeds(topics: Collection<SeedsSyncItem>, currentDay: Int, daysToSync: IntArray) {
         if (topics.isEmpty())
             return
         val valuesCount = topics.first().updatesCount.size  // количество значений вставляемых в БД
@@ -194,26 +203,31 @@ object SeedsRepository {
         var statement: Statement? = null
         try {
             connection = updateConnectionPool.connection
-            // no INSERT OR REPLACE in psql (why??)
-            // FIXME: 21.01.2023 seems to be not good solution
-            connection.createStatement().execute(
-                "DELETE FROM TopicsNew WHERE id IN (${
-                    topics.joinToString(",") {
-                        it.topicId.toString()
-                    }
-                })"
-            )
-            statement = connection.prepareStatement(
-                "INSERT INTO TopicsNew VALUES (?${",?".repeat(valuesCount * 2)})"
-            )
+//            // no INSERT OR REPLACE in psql (why??)
+//            // tFIXME: 21.01.2023 seems to be not good solution
+//            connection.createStatement().execute(
+//                "DELETE FROM TopicsNew WHERE id IN (${
+//                    topics.joinToString(",") {
+//                        it.topicId.toString()
+//                    }
+//                })"
+//            )
+            val cellsToUpdate = daysToSync.daysToCells(currentDay)
+            var insertSyncQuery = "UPDATE TopicsNew SET "
+            for (day in cellsToUpdate) {
+                insertSyncQuery += "u$day=?,s$day=?,"
+            }
+            insertSyncQuery = insertSyncQuery.dropLast(1)
+            insertSyncQuery += "WHERE id = ?"
+            statement = connection.prepareStatement(insertSyncQuery)
             // эта цыганская магия позволит нам вставлять значения в нужные ячейки и не таскать с собой индексы
             for (topic in topics) {
-                statement.setInt(1, topic.topicId)
+                statement.setInt(valuesCount * 2 + 1, topic.topicId)
                 for (i in 0 until valuesCount) {
-                    statement.setInt(i * 2 + 2, topic.updatesCount[i])
+                    statement.setInt(i * 2 + 1, topic.updatesCount[i])
                     // really big overhead to database if we have to use int instead of smallint on transactions
                     // and yes, disk space is really matters on potato PC
-                    statement.setInt(i * 2 + 3, min(topic.totalSeeds[i], 24 * 1000))
+                    statement.setInt(i * 2 + 2, min(topic.totalSeeds[i], 24 * 1000))
                 }
                 statement.addBatch()
             }
@@ -234,7 +248,6 @@ object SeedsRepository {
             val insertSyncQuery = StringBuilder()
             insertSyncQuery.append("UPDATE Topics SET ")
             for (day in tableDaysToSync) {
-                // FIXME: 17.01.2023 это явно может делаться проще и я чего-то не знаю
                 insertSyncQuery.append("u$day=t.u$day,s$day=t.s$day,")
             }
             insertSyncQuery.setCharAt(insertSyncQuery.length - 1, ' ')
