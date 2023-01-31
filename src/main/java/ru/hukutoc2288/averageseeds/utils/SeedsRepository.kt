@@ -320,7 +320,7 @@ object SeedsRepository {
         }
         try {
             statement = connection.createStatement()
-            statement.fetchSize = 5
+            statement.fetchSize = 20
             resultSet = statement.executeQuery(
                 "SELECT $columnsToSelect FROM Topics WHERE ss IN (${subsections.joinToString(",")})" +
                         " ORDER BY ss"
