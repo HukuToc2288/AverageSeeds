@@ -8,6 +8,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 import ru.hukutoc2288.averageseeds.utils.SeedsRepository
 import ru.hukutoc2288.averageseeds.mapper
 import ru.hukutoc2288.averageseeds.dayToRead
+import ru.hukutoc2288.averageseeds.daysCycle
 import ru.hukutoc2288.averageseeds.entities.seeds.CurrentDayResponseBody
 import ru.hukutoc2288.averageseeds.entities.seeds.VersionResponseBody
 import ru.hukutoc2288.averageseeds.utils.CachingIterator
@@ -23,6 +24,13 @@ class SeedsController {
         @RequestParam(name = "subsections", required = false) subsections: IntArray?,
         @RequestParam(name = "days", required = false) daysToRequest: IntArray?
     ): ResponseEntity<StreamingResponseBody> {
+        daysToRequest?.let {
+            for (day in it) {
+                if (day < 0 || day >= daysCycle - 1) {
+                    throw IllegalArgumentException("некорректный день: $day")
+                }
+            }
+        }
         val daysToRequest = if (daysToRequest?.isEmpty() != false) (0..29).toList().toIntArray() else daysToRequest
         val mainUpdatesCount = SeedsRepository.getMainUpdates(dayToRead, daysToRequest)
         val topicsIterator =
@@ -57,7 +65,7 @@ class SeedsController {
                 // write message field here if needed
                 responseStream.write("}")
                 responseStream.flush()
-            }catch (e: Exception){
+            } catch (e: Exception) {
                 e.printStackTrace()
                 throw e
             } finally {
