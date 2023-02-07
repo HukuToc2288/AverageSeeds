@@ -26,6 +26,7 @@ const val maxRequestAttempts = 3
 const val requestRetryTimeMinutes = 10
 const val packSize = 1000
 const val daysCycle = 31
+val minDelayBetweenUpdates = TimeUnit.MINUTES.toMillis(15)
 val syncTimeZone = ZoneId.of("Europe/Moscow")
 
 val mapper = jsonMapper {
@@ -35,6 +36,7 @@ val mapper = jsonMapper {
 }
 
 private var previousDay = (LocalDateTime.now(syncTimeZone).toLocalDate().toEpochDay() % daysCycle).toInt()
+private var timeOfLastUpdateEnd = 0L
 var dayToRead = previousDay // день, за который мы должны читать
 val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale("ru"))
 
@@ -78,7 +80,7 @@ fun updateSeeds() {
     val insertSeeds = {
         val listToProcess = updateTopicsList
         tryOnDbWorker {
-            SeedsRepository.appendNewSeeds(listToProcess,currentDay)
+            SeedsRepository.appendNewSeeds(listToProcess, currentDay)
         }
         updateTopicsList = ArrayList()
     }
@@ -111,6 +113,8 @@ fun updateSeeds() {
     if (updateTopicsList.isNotEmpty())
         insertSeeds.invoke()
 
+    timeOfLastUpdateEnd = System.currentTimeMillis()    // синхронизация не учитывается во времени обновления
+
     if (currentDay != previousDay) {
         pendingSyncUrls.clear()
         pendingSyncUrls.addAll(SeedsProperties.syncUrls)
@@ -132,7 +136,6 @@ fun updateSeeds() {
     System.runFinalization()
 }
 
-// TODO: 23.01.2023 use the same algorithm as in seeds append
 fun syncSeeds(subsections: Collection<Int>) {
     val currentPendingSyncUrls = ArrayList<String>(pendingSyncUrls)
 
@@ -289,6 +292,11 @@ fun main(args: Array<String>) {
     val delay = startTime.timeInMillis - System.currentTimeMillis()
     println("Ближайшее обновление будет выполнено через ${(delay / 1000 / 60).toInt()} минут")
     updateScheduler.scheduleAtFixedRate({
+        if (timeOfLastUpdateEnd + minDelayBetweenUpdates > System.currentTimeMillis()) {
+            println("Обновление было пропущено, так как с завершения последнего обновления" +
+                    " прошло менее ${TimeUnit.MILLISECONDS.toMinutes(minDelayBetweenUpdates)} минут")
+            return@scheduleAtFixedRate
+        }
         try {
             updateSeeds()
         } catch (e: Exception) {
