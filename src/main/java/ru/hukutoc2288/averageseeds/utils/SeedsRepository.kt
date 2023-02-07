@@ -1,6 +1,7 @@
 package ru.hukutoc2288.averageseeds.utils
 
 import com.zaxxer.hikari.HikariDataSource
+import ru.hukutoc2288.averageseeds.dayToRead
 import ru.hukutoc2288.averageseeds.daysCycle
 import ru.hukutoc2288.averageseeds.entities.db.SeedsInsertItem
 import ru.hukutoc2288.averageseeds.entities.db.SeedsSyncItem
@@ -15,6 +16,7 @@ import java.util.Collections
 import kotlin.math.min
 
 object SeedsRepository {
+    private const val currentDayKey = "currentDay"
 
     private val updateConnectionPool = HikariDataSource().apply {
         jdbcUrl = "jdbc:postgresql:${SeedsProperties.dbUrl}"
@@ -60,9 +62,33 @@ object SeedsRepository {
             statement.addBatch(createTableQueryBuilder.toString())
             statement.addBatch("INSERT INTO Topics(id,ss) VALUES (-1,1) ON CONFLICT DO NOTHING")
             statement.addBatch("CREATE INDEX IF NOT EXISTS ss_index ON Topics(ss)")
+            statement.addBatch(
+                "CREATE TABLE IF NOT EXISTS Variables (" +
+                        "key VARCHAR NOT NULL PRIMARY KEY," +
+                        "value INT NOT NULL)"
+            )
+            statement.addBatch("INSERT INTO Variables VALUES ('$currentDayKey', $dayToRead) ON CONFLICT DO NOTHING")
             statement.executeBatch()
             connection.commit()
         } finally {
+            statement?.close()
+            connection?.close()
+        }
+    }
+
+    fun getLastUpdateDay(): Int {
+        var connection: Connection? = null
+        var statement: Statement? = null
+        var resultSet: ResultSet? = null
+        try {
+            connection = updateConnectionPool.connection
+            statement = connection.createStatement()
+            resultSet = statement.executeQuery("SELECT value FROM Variables WHERE key='$currentDayKey' LIMIT 1")
+            if (!resultSet.next())
+                throw SQLException("Last update day not acquired, this doesn't suppose to happen!")
+            return resultSet.getInt(1)
+        } finally {
+            resultSet?.close()
             statement?.close()
             connection?.close()
         }
@@ -350,6 +376,61 @@ object SeedsRepository {
                 addResource(connection)
             }
         } finally {
+        }
+    }
+
+    fun clearDays(currentDay: Int, daysCount: Int) {
+        val startTime = System.currentTimeMillis()
+        var connection: Connection? = null
+        var statement: Statement? = null
+        try {
+            connection = updateConnectionPool.connection
+            statement = connection.createStatement()
+            statement.addBatch("ALTER TABLE Topics RENAME TO TopicsBak")
+            statement.addBatch("ALTER TABLE TopicsBak RENAME CONSTRAINT topics_pkey TO topicsbak_pkey")
+            statement.addBatch(
+                "CREATE TABLE Topics (LIKE TopicsBak INCLUDING CONSTRAINTS INCLUDING DEFAULTS)"
+            )
+
+            if (daysCount < daysCycle) {
+                // копируем данные, только если с момента обновления прошло не больше месяца
+                var insertSelectQuery = "id,ss"
+                // copy values that won't be zeroified
+                val cellsToCopy = (daysCount - 1 until daysCycle - 1).toList().toIntArray().daysToCells(currentDay)
+                for (cell in cellsToCopy) {
+                    insertSelectQuery += ",s$cell,u$cell"
+                }
+                // copy all values into new table
+                statement.addBatch("INSERT INTO Topics SELECT $insertSelectQuery FROM TopicsBak")
+            }
+
+            // create ss index
+            statement.addBatch("CREATE INDEX IF NOT EXISTS ss_index ON Topics(ss)")
+            // build primary key on new data
+            statement.addBatch("ALTER TABLE Topics ADD PRIMARY KEY (id)")
+
+            statement.executeBatch()
+            connection.commit()
+        } finally {
+            statement?.close()
+            connection?.close()
+
+            println("create new table done in ${((System.currentTimeMillis() - startTime) / 1000).toInt()} seconds")
+            appendWasteTime = 0
+        }
+    }
+
+    fun updateCurrentDay(currentDay: Int) {
+        var connection: Connection? = null
+        var statement: Statement? = null
+        try {
+            connection = updateConnectionPool.connection
+            statement = connection.createStatement()
+            statement.executeUpdate("UPDATE Variables SET value=$currentDay WHERE key='$currentDayKey'")
+            connection.commit()
+        } finally {
+            statement?.close()
+            connection?.close()
         }
     }
 }

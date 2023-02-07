@@ -21,6 +21,7 @@ import java.time.format.DateTimeFormatter
 import java.util.*
 import java.util.concurrent.*
 import kotlin.collections.ArrayList
+import kotlin.system.exitProcess
 
 const val maxRequestAttempts = 3
 const val requestRetryTimeMinutes = 10
@@ -35,7 +36,7 @@ val mapper = jsonMapper {
     configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
 }
 
-private var previousDay = (LocalDateTime.now(syncTimeZone).toLocalDate().toEpochDay() % daysCycle).toInt()
+private var previousDay = (LocalDateTime.now(syncTimeZone).toLocalDate().toEpochDay()).toInt()
 private var timeOfLastUpdateEnd = 0L
 var dayToRead = previousDay // день, за который мы должны читать
 val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale("ru"))
@@ -64,7 +65,7 @@ fun updateSeeds() {
     val startTime = System.currentTimeMillis()
     println(sdf.format(Date()))
     // номер ячейки текущего дня в БД
-    val currentDay = (LocalDateTime.now(syncTimeZone).toLocalDate().toEpochDay() % daysCycle).toInt()
+    val currentDay = (LocalDateTime.now(syncTimeZone).toLocalDate().toEpochDay()).toInt()
     if (currentDay != previousDay) {
         // Предыдущий день уже закрыт и его можно читать
         dayToRead = currentDay
@@ -80,7 +81,7 @@ fun updateSeeds() {
     val insertSeeds = {
         val listToProcess = updateTopicsList
         tryOnDbWorker {
-            SeedsRepository.appendNewSeeds(listToProcess, currentDay)
+            SeedsRepository.appendNewSeeds(listToProcess, currentDay % daysCycle)
         }
         updateTopicsList = ArrayList()
     }
@@ -88,10 +89,7 @@ fun updateSeeds() {
     println("Обновляются сиды в ${forumSize.size} подразделах")
 
     tryOnDbWorker {
-        SeedsRepository.prepareDatabase()
-    }
-    tryOnDbWorker {
-        SeedsRepository.createNewSeedsTable(currentDay, currentDay != previousDay)
+        SeedsRepository.createNewSeedsTable(currentDay % daysCycle, currentDay != previousDay)
     }
     for (forum in forumSize.keys) {
         val forumTorrents = try {
@@ -128,6 +126,7 @@ fun updateSeeds() {
     println("Запись новых данных в базу (будет происходить в фоне)")
     tryOnDbWorker {
         SeedsRepository.commitNewSeeds()
+        SeedsRepository.updateCurrentDay(currentDay)
         println("Обновление всех разделов завершено за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
     }
 
@@ -267,6 +266,31 @@ fun main(args: Array<String>) {
         }
     }
     SeedsProperties.load()
+    SeedsRepository.prepareDatabase()
+
+    println(
+        "Московское время ${
+            LocalDateTime.now(syncTimeZone).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+        }. Если это ошибка, настройте время и часовые пояса на компьютере!"
+    )
+
+    val lastUpdateDay = SeedsRepository.getLastUpdateDay()
+    println("Сегодняшний день на сервере — $dayToRead (${dayToRead % daysCycle}), в БД — $lastUpdateDay (${lastUpdateDay % daysCycle})")
+    if (lastUpdateDay < dayToRead) {
+        if (lastUpdateDay == dayToRead - 1) {
+            // если обновлялись вчера, можно просто передвинуть день на 1
+            println("Похоже, последний раз база обновлялась вчера — сегодняшний день будет сброшен при обновлении")
+            previousDay = lastUpdateDay
+        } else {
+            // если обновлялись ещё раньше, нужно занулить предыдущие дни и сделать бэкап таблицы на случай ошибки часов
+            // таблицу потом надо будет удалить вручную
+            SeedsRepository.clearDays(dayToRead % daysCycle, dayToRead - lastUpdateDay)
+            SeedsRepository.updateCurrentDay(dayToRead)
+        }
+    } else if (lastUpdateDay > dayToRead) {
+        println("День последнего обновления в БД больше текущего! Этого не должно происходить, сервис будет остановлен")
+        exitProcess(1)
+    }
 
     if (args.contains("sync")) {
         println("Синхронизация будет принудительно выполнена после ближайшего обновления")
@@ -277,12 +301,6 @@ fun main(args: Array<String>) {
         println("Обновляем сиды прямо сейчас")
         updateSeeds()
     }
-    println(
-        "Московское время ${
-            LocalDateTime.now(syncTimeZone).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-        }. Если это ошибка, настройте время и часовые пояса на компьютере!"
-    )
-    println("Сегодняшний день в БД — $dayToRead")
     val startTime = GregorianCalendar()
     if (startTime.get(Calendar.MINUTE) >= SeedsProperties.updateMinute) {
         // если уже пропустили время то выполним через час
@@ -293,8 +311,10 @@ fun main(args: Array<String>) {
     println("Ближайшее обновление будет выполнено через ${(delay / 1000 / 60).toInt()} минут")
     updateScheduler.scheduleAtFixedRate({
         if (timeOfLastUpdateEnd + minDelayBetweenUpdates > System.currentTimeMillis()) {
-            println("Обновление было пропущено, так как с завершения последнего обновления" +
-                    " прошло менее ${TimeUnit.MILLISECONDS.toMinutes(minDelayBetweenUpdates)} минут")
+            println(
+                "Обновление было пропущено, так как с завершения последнего обновления" +
+                        " прошло менее ${TimeUnit.MILLISECONDS.toMinutes(minDelayBetweenUpdates)} минут"
+            )
             return@scheduleAtFixedRate
         }
         try {
