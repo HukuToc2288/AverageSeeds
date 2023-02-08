@@ -81,7 +81,7 @@ fun updateSeeds() {
     val insertSeeds = {
         val listToProcess = updateTopicsList
         tryOnDbWorker {
-            SeedsRepository.appendNewSeeds(listToProcess, currentDay % daysCycle)
+            SeedsRepository.appendNewSeeds(listToProcess)
         }
         updateTopicsList = ArrayList()
     }
@@ -89,7 +89,7 @@ fun updateSeeds() {
     println("Обновляются сиды в ${forumSize.size} подразделах")
 
     tryOnDbWorker {
-        SeedsRepository.createNewSeedsTable(currentDay % daysCycle, currentDay != previousDay)
+        SeedsRepository.createNewSeedsTable(currentDay != previousDay)
     }
     for (forum in forumSize.keys) {
         val forumTorrents = try {
@@ -100,14 +100,15 @@ fun updateSeeds() {
         }
         for (torrent in forumTorrents.result) {
             val seedersCount = torrent.value.getOrNull(1) as Int? ?: continue
-            updateTopicsList.add(SeedsInsertItem(forum, torrent.key, seedersCount))
+            val isHighPriority = torrent.value.getOrNull(4) as Int == 2
+            updateTopicsList.add(SeedsInsertItem(forum, torrent.key, seedersCount, isHighPriority))
             if (updateTopicsList.size == packSize) {
                 insertSeeds.invoke()
             }
         }
     }
     // virtual topic to count main updates
-    updateTopicsList.add(SeedsInsertItem(-1, -1, 0))
+    updateTopicsList.add(SeedsInsertItem(-1, -1, 0, false))
     if (updateTopicsList.isNotEmpty())
         insertSeeds.invoke()
 
@@ -125,8 +126,7 @@ fun updateSeeds() {
 
     println("Запись новых данных в базу (будет происходить в фоне)")
     tryOnDbWorker {
-        SeedsRepository.commitNewSeeds()
-        SeedsRepository.updateCurrentDay(currentDay)
+        SeedsRepository.commitNewSeeds(currentDay)
         println("Обновление всех разделов завершено за ${((System.currentTimeMillis() - startTime) / 1000 / 60).toInt()} минут")
     }
 
@@ -142,7 +142,7 @@ fun syncSeeds(subsections: Collection<Int>) {
     for (url in currentPendingSyncUrls) {
         val daysToSync = ArrayList<Int>()
         // чтение из бд, не ставить в воркер!
-        val myUpdatesCount = SeedsRepository.getMainUpdates(dayToRead, (0..29).toList().toIntArray())
+        val myUpdatesCount = SeedsRepository.getMainUpdates((0..29).toList().toIntArray())
         for (i in myUpdatesCount.indices) {
             if (myUpdatesCount[i] != 24) {
                 daysToSync.add(i)
@@ -196,7 +196,7 @@ fun syncSeeds(subsections: Collection<Int>) {
             val updateSeeds = {
                 val listToProcess = syncTopicsList
                 tryOnDbWorker {
-                    SeedsRepository.appendSyncSeeds(listToProcess, dayToRead, remoteBetterDays)
+                    SeedsRepository.appendSyncSeeds(listToProcess, remoteBetterDays)
                 }
                 syncTopicsList = ArrayList()
             }
@@ -275,17 +275,20 @@ fun main(args: Array<String>) {
     )
 
     val lastUpdateDay = SeedsRepository.getLastUpdateDay()
-    println("Сегодняшний день на сервере — $dayToRead (${dayToRead % daysCycle}), в БД — $lastUpdateDay (${lastUpdateDay % daysCycle})")
+    println("Сегодняшний день на сервере — $dayToRead, в БД — $lastUpdateDay")
     if (lastUpdateDay < dayToRead) {
-        if (lastUpdateDay == dayToRead - 1) {
+        val offset = dayToRead - lastUpdateDay
+        if (offset == 1) {
             // если обновлялись вчера, можно просто передвинуть день на 1
             println("Похоже, последний раз база обновлялась вчера — сегодняшний день будет сброшен при обновлении")
             previousDay = lastUpdateDay
         } else {
             // если обновлялись ещё раньше, нужно занулить предыдущие дни и сделать бэкап таблицы на случай ошибки часов
             // таблицу потом надо будет удалить вручную
-            SeedsRepository.clearDays(dayToRead % daysCycle, dayToRead - lastUpdateDay)
-            SeedsRepository.updateCurrentDay(dayToRead)
+            println("В последний раз база обновлялась $offset дня назад. Старые данные будут сохранены в таблице " +
+                    "TopicsBak, а новые будут смещены в соответствии с текущим днём")
+            SeedsRepository.createNewSeedsTable(dayToRead - lastUpdateDay)
+            SeedsRepository.commitNewSeeds(dayToRead, true)
         }
     } else if (lastUpdateDay > dayToRead) {
         println("День последнего обновления в БД больше текущего! Этого не должно происходить, сервис будет остановлен")

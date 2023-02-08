@@ -32,9 +32,9 @@ class SeedsController {
             }
         }
         val daysToRequest = if (daysToRequest?.isEmpty() != false) (0..29).toList().toIntArray() else daysToRequest
-        val mainUpdatesCount = SeedsRepository.getMainUpdates(dayToRead, daysToRequest)
+        val mainUpdatesCount = SeedsRepository.getMainUpdates(daysToRequest)
         val topicsIterator =
-            SeedsRepository.getSeedsInSubsections(dayToRead, subsections, mainUpdatesCount, daysToRequest)
+            SeedsRepository.getSeedsInSubsections(subsections, mainUpdatesCount, daysToRequest)
         val responseBody = StreamingResponseBody { responseStream ->
             try {
                 // building answer manually, as we may run OOM on potato PC
