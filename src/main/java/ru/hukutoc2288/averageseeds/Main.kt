@@ -99,16 +99,31 @@ fun updateSeeds() {
             continue
         }
         for (torrent in forumTorrents.result) {
-            val seedersCount = torrent.value.getOrNull(1) as Int? ?: continue
-            val isHighPriority = torrent.value.getOrNull(4) as Int == 2
-            updateTopicsList.add(SeedsInsertItem(forum, torrent.key, seedersCount, isHighPriority))
+            val seedersCount = torrent.value.getOrNull(1) as? Int ?: continue
+            // этот кривой код позволит не переписывать его в 2038-м
+            val registrationDate = (torrent.value.getOrNull(2))?.let {
+                if (it is Int)
+                    it.toLong()
+                else
+                    it as Long
+            } ?: continue
+            val isHighPriority = torrent.value.getOrNull(4) as? Int == 2
+            updateTopicsList.add(
+                SeedsInsertItem(
+                    forum,
+                    torrent.key,
+                    seedersCount,
+                    registrationDate,
+                    isHighPriority
+                )
+            )
             if (updateTopicsList.size == packSize) {
                 insertSeeds.invoke()
             }
         }
     }
     // virtual topic to count main updates
-    updateTopicsList.add(SeedsInsertItem(-1, -1, 0, false))
+    updateTopicsList.add(SeedsInsertItem(-1, -1, 0, 0, false))
     if (updateTopicsList.isNotEmpty())
         insertSeeds.invoke()
 
@@ -285,8 +300,10 @@ fun main(args: Array<String>) {
         } else {
             // если обновлялись ещё раньше, нужно занулить предыдущие дни и сделать бэкап таблицы на случай ошибки часов
             // таблицу потом надо будет удалить вручную
-            println("В последний раз база обновлялась $offset дня назад. Старые данные будут сохранены в таблице " +
-                    "TopicsBak, а новые будут смещены в соответствии с текущим днём")
+            println(
+                "В последний раз база обновлялась $offset дня назад. Старые данные будут сохранены в таблице " +
+                        "TopicsBak, а новые будут смещены в соответствии с текущим днём"
+            )
             SeedsRepository.createNewSeedsTable(dayToRead - lastUpdateDay)
             SeedsRepository.commitNewSeeds(dayToRead, true)
         }

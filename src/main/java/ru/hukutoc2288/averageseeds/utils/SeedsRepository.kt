@@ -14,9 +14,12 @@ import java.sql.SQLException
 import java.sql.Statement
 import java.util.Collections
 import kotlin.math.min
+import kotlin.system.exitProcess
 
 object SeedsRepository {
     private const val currentDayKey = "currentDay"
+    private const val dataVersionKey = "dataVersion"
+    private const val targetDataVersion = 1
 
     private val updateConnectionPool = HikariDataSource().apply {
         jdbcUrl = "jdbc:postgresql:${SeedsProperties.dbUrl}"
@@ -47,16 +50,75 @@ object SeedsRepository {
             connection = updateConnectionPool.connection
             statement = connection.createStatement()
             statement.addBatch("CREATE TABLE IF NOT EXISTS Topics (${buildTableStructureQuery(true)})")
-            // backwards compatibility column (columns will be not in right order btw)
-            statement.addBatch("ALTER TABLE Topics ADD COLUMN IF NOT EXISTS hp BOOLEAN")
-            statement.addBatch("INSERT INTO Topics(id,ss,hp) VALUES (-1,1,false) ON CONFLICT DO NOTHING")
             statement.addBatch("CREATE INDEX IF NOT EXISTS ss_index ON Topics(ss)")
             statement.addBatch(
                 "CREATE TABLE IF NOT EXISTS Variables (" +
                         "key VARCHAR NOT NULL PRIMARY KEY," +
                         "value INT NOT NULL)"
             )
-            statement.addBatch("INSERT INTO Variables VALUES ('$currentDayKey', $dayToRead) ON CONFLICT DO NOTHING")
+            statement.addBatch(
+                "INSERT INTO Variables VALUES" +
+                        " ('$currentDayKey', $dayToRead)," +
+                        " ('$dataVersionKey', 0)" +
+                        " ON CONFLICT DO NOTHING"
+            )
+            statement.executeBatch()
+            connection.commit()
+            statement.close()
+            connection.close()
+
+            updateDataToTargetVersion()
+
+            connection = updateConnectionPool.connection
+            statement = connection.createStatement()
+            statement.addBatch("INSERT INTO Topics(id,ss,rg,hp) VALUES (-1,1,1,false) ON CONFLICT DO NOTHING")
+            statement.executeBatch()
+            connection.commit()
+        } finally {
+            statement?.close()
+            connection?.close()
+        }
+    }
+
+
+    fun getCurrentDataVersion(): Int {
+        var connection: Connection? = null
+        var statement: Statement? = null
+        var resultSet: ResultSet? = null
+        try {
+            connection = updateConnectionPool.connection
+            statement = connection.createStatement()
+            resultSet = statement.executeQuery("SELECT value FROM Variables WHERE key='$dataVersionKey' LIMIT 1")
+            if (!resultSet.next())
+                throw SQLException("Data version not acquired, this doesn't suppose to happen!")
+            return resultSet.getInt(1)
+        } finally {
+            resultSet?.close()
+            statement?.close()
+            connection?.close()
+        }
+    }
+
+    private fun updateDataToTargetVersion() {
+        var currentDataVersion = getCurrentDataVersion()
+        if (currentDataVersion == targetDataVersion)
+            return
+        if (currentDataVersion > targetDataVersion) {
+            println("Версия базы данных выше, чем требуемая! Этого не должно происходить, сервис будет остановлен")
+            exitProcess(1)
+        }
+        var connection: Connection? = null
+        var statement: Statement? = null
+        try {
+            connection = updateConnectionPool.connection
+            statement = connection.createStatement()
+            if (currentDataVersion < 1) {
+                // version 1 - added registration date column
+                statement.addBatch("ALTER TABLE Topics ADD COLUMN IF NOT EXISTS rg BIGINT NOT NULL DEFAULT 0")
+                statement.addBatch("ALTER TABLE Topics ALTER COLUMN rg DROP DEFAULT")
+                currentDataVersion = 1
+            }
+            statement.addBatch("UPDATE Variables SET value=$currentDataVersion WHERE key='$dataVersionKey'")
             statement.executeBatch()
             connection.commit()
         } finally {
@@ -114,16 +176,33 @@ object SeedsRepository {
     }
 
     var appendWasteTime: Long = 0
-    fun appendNewSeeds(topics: Collection<SeedsInsertItem>) {
+    fun appendNewSeeds(topics: MutableCollection<SeedsInsertItem>) {
         appendWasteTime -= System.currentTimeMillis()
         var connection: Connection? = null
         var statement: PreparedStatement? = null
+        val datesOfPresentTopics = getRegistrationDatesByIds(topics.map { it.topicId })
+        val topicsToRemove = ArrayList<Int>()
+        for (topic in topics) {
+            // если тема есть, но дата регистрации поменялась, надо сбросить сиды,
+            // что достигается удалением темы, и последующей вставкой её как новой
+            // оставляем дату регистрации 0 для совместимости
+            if (datesOfPresentTopics.containsKey(topic.topicId) &&
+                datesOfPresentTopics[topic.topicId] != topic.registrationDate &&
+                datesOfPresentTopics[topic.topicId] != 0L
+            ) {
+                topicsToRemove.add(topic.topicId)
+            }
+        }
         try {
             connection = updateConnectionPool.connection
+            if (topicsToRemove.isNotEmpty())
+                connection.createStatement()
+                    .execute("DELETE FROM TopicsNew WHERE id in (${topicsToRemove.joinToString(",")})")
             statement = connection.prepareStatement(
-                "INSERT INTO TopicsNew(id,ss,hp,sc,uc) VALUES (?,?,?,?,1)" +
+                "INSERT INTO TopicsNew(id,ss,rg,hp,sc,uc) VALUES (?,?,?,?,?,1)" +
                         " ON CONFLICT(id) DO UPDATE SET " +
                         "ss=excluded.ss," +
+                        "rg=excluded.rg," +
                         "hp=excluded.hp," +
                         "sc=TopicsNew.sc+excluded.sc," +
                         "uc=TopicsNew.uc+excluded.uc"
@@ -131,19 +210,41 @@ object SeedsRepository {
             for (topic in topics) {
                 statement.setInt(1, topic.topicId)
                 statement.setInt(2, topic.forumId)
-                statement.setBoolean(3, topic.highPriority)
+                statement.setLong(3, topic.registrationDate)
+                statement.setBoolean(4, topic.highPriority)
                 // really big overhead to database if we have to use int instead of smallint on transactions
                 // and yes, disk space is really matters on potato PC
                 // or not?
-                statement.setInt(4, min(topic.seedsCount, 1000))
+                statement.setInt(5, min(topic.seedsCount, 1000))
                 statement.addBatch()
             }
             statement.executeBatch()
+            statement.close()
             connection.commit()
         } finally {
             statement?.close()
             connection?.close()
             appendWasteTime += System.currentTimeMillis()
+        }
+    }
+
+    private fun getRegistrationDatesByIds(ids: Collection<Int>): Map<Int, Long> {
+        var connection: Connection? = null
+        var statement: Statement? = null
+        var resultSet: ResultSet? = null
+        try {
+            connection = apiConnectionPool.connection
+            statement = connection.createStatement()
+            resultSet = statement.executeQuery("SELECT id,rg FROM Topics WHERE id IN (${ids.joinToString(",")})")
+            val dates = HashMap<Int, Long>()
+            while (resultSet.next()) {
+                dates[resultSet.getInt(1)] = resultSet.getLong(2)
+            }
+            return dates
+        } finally {
+            resultSet?.close()
+            statement?.close()
+            connection?.close()
         }
     }
 
@@ -173,7 +274,7 @@ object SeedsRepository {
             // rename primary key matching table name
             statement.addBatch("ALTER TABLE Topics RENAME CONSTRAINT topicsnew_pkey TO topics_pkey")
             // update day in the same transaction
-            statement.executeUpdate("UPDATE Variables SET value=$currentDay WHERE key='$currentDayKey'")
+            statement.addBatch("UPDATE Variables SET value=$currentDay WHERE key='$currentDayKey'")
             statement.executeBatch()
             connection.commit()
         } finally {
@@ -312,6 +413,7 @@ object SeedsRepository {
                 (if (addPkey) "PRIMARY KEY " else "") +
                 "NOT NULL," +
                 "ss SMALLINT NOT NULL," +
+                "rg BIGINT NOT NULL," +
                 "hp BOOLEAN NOT NULL," +
                 "sc SMALLINT NOT NULL DEFAULT 0"
         for (i in 0 until daysCycle - 1) {
@@ -330,7 +432,7 @@ object SeedsRepository {
         if (offset >= daysCycle) {
             throw IllegalArgumentException("offset not less than daysCycle: $offset when daysCycle is $daysCycle")
         }
-        var valuesToInsert = "id,ss,hp,sc"
+        var valuesToInsert = "id,ss,rg,hp,sc"
         for (i in 0 until daysCycle - 1) {
             valuesToInsert += ",s$i"
         }
@@ -338,7 +440,7 @@ object SeedsRepository {
         for (i in 0 until daysCycle - 1) {
             valuesToInsert += ",u$i"
         }
-        var valuesToSelect = "id,ss,hp"
+        var valuesToSelect = "id,ss,rg,hp"
         valuesToSelect += ",0".repeat(offset)
         for (i in -1 until daysCycle - offset - 1) {
             valuesToSelect += if (i == -1)
