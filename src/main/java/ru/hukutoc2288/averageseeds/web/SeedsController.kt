@@ -12,6 +12,7 @@ import ru.hukutoc2288.averageseeds.daysCycle
 import ru.hukutoc2288.averageseeds.entities.seeds.CurrentDayResponseBody
 import ru.hukutoc2288.averageseeds.entities.seeds.VersionResponseBody
 import ru.hukutoc2288.averageseeds.utils.CachingIterator
+import ru.hukutoc2288.averageseeds.utils.RangeUtils
 import java.io.OutputStream
 
 private const val SUBSECTION_START = -2
@@ -19,19 +20,28 @@ private const val SUBSECTION_START = -2
 @RestController
 class SeedsController {
 
+    // длина строки, если перечислить все дни через запятую, + некоторый запас
+    // -2 т.к. дни начинаются с нуля + запрещаем показывать текущий день
+    var daysStringLimit = ((daysCycle - 2).toString().length + 1) * (daysCycle - 1)
+
     @GetMapping("/seeds", produces = ["application/json"])
     fun greeting(
         @RequestParam(name = "subsections", required = false) subsections: IntArray?,
-        @RequestParam(name = "days", required = false) daysToRequest: IntArray?
+        @RequestParam(name = "days", required = false) daysToRequestString: String?
     ): ResponseEntity<StreamingResponseBody> {
-        daysToRequest?.let {
-            for (day in it) {
-                if (day < 0 || day >= daysCycle - 1) {
-                    throw IllegalArgumentException("некорректный день: $day")
-                }
+
+        val daysToRequest = if (daysToRequestString == null) {
+            (0..daysCycle - 2).toList().toIntArray()
+        } else {
+            if (daysToRequestString.length > daysStringLimit) {
+                throw IllegalArgumentException("Строка дней слишком длинная: текущее ограничение $daysStringLimit," +
+                        " длина строки в запросе ${daysToRequestString.length}. Ограничение рассчитано автоматически, если его не хватает," +
+                        " скорее всего это ошибка клиента")
             }
+            RangeUtils.parse(daysToRequestString, 0, daysCycle - 2)
         }
-        val daysToRequest = if (daysToRequest?.isEmpty() != false) (0..29).toList().toIntArray() else daysToRequest
+        // TODO: есть смысл ввести ограничения и на кол-во подразделов
+        daysToRequest ?: throw IllegalArgumentException("некорректный диапазон дней: $daysToRequestString")
         val mainUpdatesCount = SeedsRepository.getMainUpdates(daysToRequest)
         val topicsIterator =
             SeedsRepository.getSeedsInSubsections(subsections, mainUpdatesCount, daysToRequest)
