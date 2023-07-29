@@ -17,7 +17,8 @@ class SeedsErrorController : ErrorController {
         produces = ["application/json"]
     )
     fun handleError(request: HttpServletRequest): String {
-        val errorMessage = request.getAttribute(RequestDispatcher.ERROR_MESSAGE) as String?
+        val exception = request.getAttribute(RequestDispatcher.ERROR_EXCEPTION) as java.lang.Exception?
+        val errorMessage = exception?.cause?.message
         return mapper.writeValueAsString(
             SeedsResponseBody(
                 if (errorMessage.isNullOrEmpty())
